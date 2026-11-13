@@ -91,7 +91,9 @@ the browser. For a fresh installation, copy `.env.example` to `.env` and set
 the key into browser code or commit it. Windows file permissions follow your
 user account; POSIX installations should use `chmod 600 jarvis/.env`.
 
-- Check the session credit-use box before speech or transcription requests.
+- Click **Start microphone** to enable voice and approve ElevenLabs credit use
+  for the current page session. No separate checkbox step is needed. Uncheck
+  **Voice enabled for this session** to revoke that approval and stop the mic.
 - **Speak text** sends up to 4,000 characters to ElevenLabs and plays MP3 audio.
 - **Start microphone** records using MediaRecorder. Actual microphone levels
   drive the bars; 900 ms of silence after speech ends the turn. Transcripts appear

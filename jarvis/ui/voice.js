@@ -119,6 +119,9 @@ async function record() {
 }
 $('mic').onclick=async()=>{
   if(enabled&&!busy){stop();return;}
+  // Starting voice is an explicit opt-in for this page session. The adjacent
+  // notice explains credit use; do not require a separate checkbox first.
+  $('approval').checked=true;
   stop();enabled=true;$('mic').textContent='Stop microphone';
   try{await record();}catch(error){stop();state('Error',error.message);}
 };
