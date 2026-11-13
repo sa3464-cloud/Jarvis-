@@ -2,12 +2,24 @@
 import json
 import argparse
 import secrets
+import socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-from . import data, voice, conversation
+from . import data, voice, conversation, tools
 
 UI = data.ROOT / 'ui'
+
+
+class LocalServer(ThreadingHTTPServer):
+    # Windows SO_REUSEADDR permits multiple servers to share a listening port,
+    # leaving requests routed unpredictably between old and new app versions.
+    allow_reuse_address = False
+
+    def server_bind(self):
+        if hasattr(socket, 'SO_EXCLUSIVEADDRUSE'):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -61,16 +73,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, {'text': voice.listen(body, self.headers.get('Content-Type', ''), approved=approved)})
             payload = json.loads(body)
             if self.path == '/api/chat':
-                return self.reply(200, conversation.answer(payload.get('question'), payload.get('history', [])))
+                return self.reply(200, tools.execute(payload.get('question'), payload.get('history', [])))
             if self.path == '/api/speak':
                 return self.reply(200, voice.speak(payload.get('text'), approved=approved), 'audio/mpeg')
             if self.path == '/api/inbox':
-                # Explicit button action; separate from transcription, so email content
-                # and recorded instructions cannot trigger mailbox access themselves.
-                token, address = data.connect_email()
-                messages = data.read_inbox(token, 5)
-                from .email import spoken_summary
-                return self.reply(200, {'account': address, 'messages': messages, 'spoken': spoken_summary(messages)})
+                result = tools.read_inbox()
+                return self.reply(200, {**result['card'], 'spoken': result['spoken']})
             self.reply(404, {'error': 'Not found'})
         except PermissionError as error:
             self.reply(403, {'error': str(error)})
@@ -86,7 +94,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port', type=int, default=8767)
     args = parser.parse_args()
-    with ThreadingHTTPServer(('127.0.0.1', args.port), Handler) as server:
+    with LocalServer(('127.0.0.1', args.port), Handler) as server:
         server.csrf = secrets.token_urlsafe(32)
         print(f'JARVIS voice console: http://127.0.0.1:{server.server_port}', flush=True)
         print('Voice requests consume ElevenLabs credits only after approval in the page.', flush=True)

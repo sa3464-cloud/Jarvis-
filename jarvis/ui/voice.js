@@ -20,6 +20,19 @@ function addTurn(role, text) {
   $('conversation').appendChild(card);
   while($('conversation').children.length>20)$('conversation').firstChild.remove();
 }
+function showInbox(card) {
+  $('cards').replaceChildren();
+  if(!card.messages.length){$('cards').textContent='No unread inbox messages.';return;}
+  for(const message of card.messages){const row=document.createElement('article');const title=document.createElement('strong');title.textContent=message.subject;const detail=document.createElement('p');detail.textContent=`${message.from} · ${message.date}`;row.append(title,detail);$('cards').appendChild(row);}
+}
+function showAction(result) {
+  if(result.card?.type==='inbox')showInbox(result.card);
+  if(result.card?.type==='website'){
+    const row=document.createElement('article');const link=document.createElement('a');
+    link.href=result.card.url;link.textContent=result.card.url;link.target='_blank';link.rel='noopener noreferrer';
+    row.appendChild(link);$('conversation').appendChild(row);
+  }
+}
 async function ask(question) {
   if(!question.trim())throw Error('Type or say a question first.');
   deaf();busy=true;const ticket=++generation;$('ask').disabled=true;
@@ -28,8 +41,9 @@ async function ask(question) {
     const result=await (await api('/api/chat',JSON.stringify({question,history}))).json();
     if(ticket!==generation)return;
     addTurn('assistant',result.answer);
+    showAction(result);
     for(const source of result.sources){const card=document.createElement('article');const title=document.createElement('strong');title.textContent=source.file;const excerpt=document.createElement('p');excerpt.textContent=source.text;card.append(title,excerpt);$('conversation').appendChild(card);}
-    $('model').textContent=result.model_missing?'Model unavailable — limited fallback only':`Local Ollama · ${result.model}`;
+    $('model').textContent=result.model_missing?'Model unavailable — limited fallback only':result.action&&result.action!=='conversation'?result.model:`Local Ollama · ${result.model}`;
     if(!result.model_missing)history=[...history,{role:'user',content:question},{role:'assistant',content:result.answer}].slice(-20);
     busy=false;state('Idle',result.model_missing?'The local model is unavailable. Check the message below.':'Answer ready.');
     if($('approval').checked)await say(result.spoken);
@@ -117,8 +131,7 @@ $('approval').onchange=()=>{if(!$('approval').checked)stop();};
 $('inbox').onclick=async()=>{
   stop();$('inbox').disabled=true;state('Thinking','Sign into Google in the opened browser. Waiting for inbox…');
   try{
-    const result=await (await api('/api/inbox','{}')).json();$('cards').replaceChildren();
-    for(const message of result.messages){const card=document.createElement('article');const title=document.createElement('strong');title.textContent=message.subject;const detail=document.createElement('p');detail.textContent=`${message.from} · ${message.date}`;card.append(title,detail);$('cards').appendChild(card);}
+    const result=await (await api('/api/inbox','{}')).json();showInbox(result);
     $('text').value=result.spoken;state('Idle',`Fetched ${result.messages.length} unread messages from ${result.account}.`);
     history=[...history,{role:'user',content:'Read my unread inbox messages.'},{role:'assistant',content:result.spoken}].slice(-20);
     if($('approval').checked)await say(result.spoken);

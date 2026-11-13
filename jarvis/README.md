@@ -147,8 +147,34 @@ verification. Answers can be wrong, especially with a small local model.
 An explicit question about “my notes” or “my files” includes matching file
 excerpts. Other questions are ordinary conversation. Retrieved content is marked
 as untrusted. The model cannot send mail, spend, execute code, or write files.
-Inbox access remains an explicit button action. If Ollama is missing, the page
+Inbox access requires an explicit button action or direct user command. If Ollama is missing, the page
 labels the limited fallback rather than presenting keyword search as AI reasoning.
 
 Verification: `python -m unittest discover -s jarvis/tests`.
 Protocol: [Ollama chat API](https://docs.ollama.com/api/chat).
+
+## Spoken and typed commands (desktop)
+
+The desktop console routes the same commands from typed input and microphone
+transcripts:
+
+- “Read my unread email” or “Check my inbox”: Google authorization followed by
+  up to five unread sender/subject summaries and detailed cards. No mail is sent
+  or marked read. Authorization may be required on each request.
+- “Plan my day”: asks for unknown priorities or proposes up to five actions from
+  the conversation. This is a suggested plan; the calendar is not connected.
+- “Open YouTube”, “Open Google”, or “Go to https://example.com”: asks the default
+  browser on the server computer to open a public web address. A link is also
+  displayed. Only HTTP/HTTPS domains are supported; no scripts, files, credentials,
+  IP addresses, or custom ports are accepted.
+- Other questions continue to local Ollama, with recent conversation context.
+
+Only the direct user utterance is routed. Retrieved notes, emails, conversation
+history, and generated model replies cannot execute actions. No shell command
+execution is implemented. These actions are desktop features; the public static
+site does not connect to your computer, microphone, Gmail, or ElevenLabs.
+
+Speech still requires the **secret ElevenLabs API key**, not its identifier.
+Replace `ELEVENLABS_API_KEY` in your gitignored `jarvis/.env` with that secret;
+an API key ID cannot be converted to a secret by the app. Keep it out of chat and
+Git. Typed commands work even when speech credentials are unavailable.
