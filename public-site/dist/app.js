@@ -4,6 +4,7 @@ function status(text){$('status').textContent=text;}
 function add(role,text){$('welcome')?.remove();const card=document.createElement('article');card.className=role;const title=document.createElement('strong');title.textContent=role==='user'?'YOU':'JARVIS';const body=document.createElement('p');body.textContent=text;card.append(title,body);$('messages').appendChild(card);while($('messages').children.length>22)$('messages').firstChild.remove();return body;}
 function finish(){busy=false;$('send').disabled=!ready;$('stop').hidden=true;$('engine-state').textContent=ready?'ENGINE READY':'ENGINE STANDBY';}
 function resetWorker(){worker?.terminate();worker=null;ready=false;finish();$('load').disabled=false;$('load').textContent='Load browser AI ↗';$('progress').hidden=true;}
+function emailRequest(text){return /\b(?:email|e-mail|inbox|unread messages?)\b/i.test(text);}
 $('load').onclick=async()=>{
   if(!navigator.gpu){status('WebGPU is unavailable. Try a current Chrome or Edge browser on a supported device. The desktop console is another option.');return;}
   $('load').disabled=true;$('progress').hidden=false;status('Checking your GPU and loading the browser engine…');
@@ -23,8 +24,13 @@ $('load').onclick=async()=>{
   }catch(error){resetWorker();status(error.message||'Unable to load the local engine.');}
 };
 $('ask-form').onsubmit=event=>{
-  event.preventDefault();if(busy)return;if(!ready){status('Load the browser AI first to start a conversation.');return;}
+  event.preventDefault();if(busy)return;
   const question=$('question').value.trim();if(!question)return;
+  if(emailRequest(question)){
+    add('user',question);add('assistant','I cannot access or summarize your email from this public website. Open the desktop JARVIS console running on your computer and ask: “Read my unread email.” It verifies the connected account is sa3464@njit.edu and never uses examples as inbox messages.');
+    $('question').value='';status('Email is available only in the local desktop console. No mailbox data was accessed here.');return;
+  }
+  if(!ready){status('Load the browser AI first to start a conversation.');return;}
   busy=true;sequence++;add('user',question);output=add('assistant','');history.push({role:'user',content:question});history=history.slice(-20);$('question').value='';$('send').disabled=true;$('stop').hidden=false;$('engine-state').textContent='THINKING';status('Generating an answer locally…');worker.postMessage({type:'chat',id:sequence,history});
 };
 $('question').onkeydown=event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();$('ask-form').requestSubmit();}};

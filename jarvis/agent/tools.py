@@ -49,7 +49,7 @@ def intent(question):
     text = re.sub(r'^(?:hey\s+)?jarvis[,\s]+', '', text, flags=re.I)
     text = re.sub(r'^(?:please\s+|(?:can|could|would) you\s+)', '', text, flags=re.I)
     text = re.sub(r'\s+please[.!?]*$', '', text, flags=re.I).strip()
-    if re.fullmatch(r'(?:read|check|show|summari[sz]e)(?: me)?(?: my| the)?(?: unread)? (?:e-?mails?|inbox|messages)(?: aloud| out loud)?[.!?]*', text, re.I):
+    if re.fullmatch(r'(?:read(?:\s+out|\s+aloud)?|check|show|summari[sz]e)(?: me)?(?: my| the)?(?: unread)? (?:e-?mails?|inbox|messages)(?: aloud| out loud)?[.!?]*', text, re.I):
         return 'read_inbox', None
     if re.match(r'^(?:plan|organize|organise)(?: out)? (?:my|the|your) day\b', text, re.I):
         return 'plan_day', None
