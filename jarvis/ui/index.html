@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#070c10">
+  <title>JARVIS — Knowledge Console</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="JARVIS home"><span class="brand-mark">J</span><span>J.A.R.V.I.S.</span></a>
+      <div class="top-status">
+        <span id="modeBadge" class="badge badge-demo"><i class="status-dot"></i>DEMO</span>
+        <span id="sourceStatus" class="badge badge-muted">INDEX LOADING</span>
+        <span id="modelBadge" class="badge badge-model">MODEL UNAVAILABLE · LOCAL FALLBACK</span>
+      </div>
+      <div class="top-right">
+        <span class="local-pill"><span class="pulse-dot"></span>LOCAL SESSION</span>
+        <span id="clock" class="clock">--:--:--</span>
+      </div>
+    </header>
+    <div class="workspace">
+      <aside class="panel inspector-panel" aria-label="Note inspector">
+        <div class="panel-heading"><div><span class="eyebrow">KNOWLEDGE MAP</span><h1>Inspector</h1></div><span class="heading-icon" aria-hidden="true">⌕</span></div>
+        <div id="inspectorContent" class="inspector-content"><div class="empty-note"><span class="empty-glyph">◌</span><strong>Select a node</strong><p>Click a point in the graph to inspect its source and connections.</p></div></div>
+        <div class="panel-divider"></div>
+        <section class="hub-section" aria-labelledby="hubsHeading"><div class="section-title"><h2 id="hubsHeading">Top hubs</h2><span class="micro-label">MOST CONNECTED</span></div><ol id="hubList" class="hub-list"><li class="muted">Loading index…</li></ol></section>
+      </aside>
+      <main class="graph-panel" aria-label="Knowledge graph">
+        <div class="graph-topline">
+          <div><span class="eyebrow">LIVE NOTE NETWORK</span><div class="graph-title-line"><h2>Knowledge graph</h2><span id="nodeCount" class="count-chip">0 nodes</span></div></div>
+          <div class="graph-actions"><details class="browse-menu"><summary class="small-button">Browse notes</summary><div id="noteDirectory" class="note-directory" aria-label="Keyboard accessible note list"></div></details><button id="resetView" class="small-button" type="button">Reset view</button></div>
+        </div>
+        <div class="graph-wrap">
+          <canvas id="graphCanvas" role="img" aria-label="Interactive graph of indexed notes. Use Browse notes for keyboard access; shift-click two notes to find a path."></canvas>
+          <div class="graph-watermark" aria-hidden="true"><span>J</span><i></i><i></i></div>
+          <div class="canvas-hint"><span class="hint-key">DRAG</span> pan <span class="hint-sep">/</span><span class="hint-key">SCROLL</span> zoom <span class="hint-sep">/</span><span class="hint-key">SHIFT + CLICK</span> trace</div>
+          <div id="pathStatus" class="path-status" role="status" aria-live="polite">Choose two notes with Shift-click to trace a connection.</div>
+        </div>
+        <div class="graph-legend" id="legend" aria-label="Graph type legend"></div>
+      </main>
+      <aside class="right-rail" aria-label="Graph filters and assistant status">
+        <section class="panel filter-panel">
+          <div class="panel-heading compact-heading"><div><span class="eyebrow">INDEX CONTROLS</span><h2>Filters</h2></div><span id="visibleCount" class="subtle-count">—</span></div>
+          <div id="filterList" class="filter-list"><p class="muted">Loading types…</p></div>
+          <div class="panel-divider"></div>
+          <div class="source-card"><div class="source-card-title"><span class="source-icon">▤</span><span>Source status</span><span id="sourceLamp" class="source-lamp"></span></div><p id="sourceDescription">Checking indexed sources…</p><div class="gmail-status"><span>Gmail · read-only</span><span id="gmailAccount">Not configured</span><b id="gmailConnection">DISCONNECTED</b><small id="gmailDetail">OAuth setup needed</small></div><button id="gmailConnect" class="gmail-connect" type="button" disabled>OAuth client file needed</button><div class="source-meta"><span id="refreshedAt">Updated —</span><span id="linkCount">— links</span></div><div id="sourceWarnings" class="source-warnings" hidden></div></div>
+        </section>
+        <section class="panel reactor-panel">
+          <div class="panel-heading compact-heading"><div><span class="eyebrow">SYSTEM STATE</span><h2>Reactor</h2></div><span class="reactor-tag">01 / 06</span></div>
+          <div class="reactor-wrap" aria-hidden="true"><div class="reactor-ring ring-a"></div><div class="reactor-ring ring-b"></div><div class="reactor-ring ring-c"></div><div class="reactor-core"><span class="core-spark">•••</span></div></div>
+          <div class="reactor-state"><span class="state-indicator"></span><strong id="reactorState">Idle</strong></div>
+          <p id="reactorCaption">Index ready. Voice is ready when supported.</p>
+        </section>
+        <section class="panel voice-panel" aria-label="Voice console">
+          <div class="panel-heading compact-heading"><div><span class="eyebrow">VOICE CONSOLE</span><h2>Talk with JARVIS</h2></div><span id="voiceProvider" class="chat-session">CHECKING</span></div>
+          <p id="voiceDetail" class="voice-detail">Checking local voice setup…</p>
+          <div class="voice-actions"><button id="voiceSectionMic" class="small-button" type="button">Start microphone</button><button id="voiceSectionTest" class="small-button" type="button">Test voice</button></div>
+          <small class="voice-privacy">Gmail replies use local browser voice unless you separately opt in to ElevenLabs email speech.</small>
+        </section>
+        <section class="panel conversation-panel" aria-label="Conversation">
+          <div class="conversation-heading"><div><span class="eyebrow">LOCAL ASSISTANT</span><h2>Conversation</h2></div><span class="chat-session">SESSION ONLY</span></div>
+          <div id="chatMessages" class="chat-messages" aria-live="polite" aria-label="Conversation messages">
+            <article class="chat-message assistant-message"><span class="message-author">JARVIS · LOCAL</span><p>Hi Seth. I can search the demo index, make a short study plan, or give a limited briefing. Open-ended reasoning is unavailable.</p></article>
+          </div>
+          <div id="chatTyping" class="chat-typing" hidden>JARVIS is routing locally…</div>
+        </section>
+      </aside>
+    </div>
+    <footer class="ask-dock" aria-label="JARVIS controls">
+      <div class="ask-brand"><span class="ask-orbit">J</span><div><strong>Ask JARVIS</strong><span>Conversation arrives in Stage 3</span></div></div>
+      <label class="sr-only" for="askInput">Ask JARVIS</label>
+      <input id="askInput" type="text" placeholder="Search notes, plan study, or say hello…" autocomplete="off" aria-describedby="askHelp">
+      <button id="sendMessage" class="send-button" type="button" aria-label="Send message">↑</button>
+      <span id="askHelp" class="sr-only">Text is processed locally. No model provider is configured.</span>
+      <div class="dock-actions">
+        <button id="voiceButton" class="dock-button labeled" type="button" aria-label="Start microphone" aria-pressed="false" title="Start microphone"><span>●</span><b>Mic</b></button>
+        <button id="voiceMute" class="dock-button labeled" type="button" aria-label="Mute JARVIS voice" aria-pressed="false" title="Mute JARVIS voice"><span>◖</span><b>Voice</b></button>
+        <button class="dock-button" type="button" disabled aria-label="Microphone, available in Stage 4" title="Voice arrives in Stage 4">●</button>
+        <button class="dock-button" type="button" disabled aria-label="Mute, available in Stage 4" title="Voice arrives in Stage 4">◖</button>
+        <button id="briefButton" class="dock-button labeled" type="button" title="Show a limited briefing"><span>▦</span><b>Brief</b></button>
+        <button id="planButton" class="dock-button labeled" type="button" title="Suggest an ordered study plan"><span>↗</span><b>Plan</b></button>
+        <button class="dock-button labeled" type="button" disabled title="Available in Stage 5"><span>◇</span><b>Memory</b></button>
+      </div>
+    </footer>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/graph.js" defer></script><script src="/app.js" defer></script>
+</body>
+</html>
