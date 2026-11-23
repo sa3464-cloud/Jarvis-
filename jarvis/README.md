@@ -75,7 +75,10 @@ and [Gmail scopes](https://developers.google.com/workspace/gmail/api/auth/scopes
 
 JARVIS replies using **Eldrin — Crisp British Baritone**, a male British voice.
 Change `ELEVENLABS_VOICE_ID` in `jarvis/.env` to choose another voice. This setting
-applies to every spoken reply, including conversation and email summaries.
+applies to ElevenLabs replies, including conversation and email summaries.
+If ElevenLabs speech credits run out, the Windows console reads replies using
+the built-in Windows voice until ElevenLabs accepts speech requests again.
+Microphone transcription still uses ElevenLabs.
 
 From the repository root:
 
@@ -106,7 +109,7 @@ user account; POSIX installations should use `chmod 600 jarvis/.env`.
   sender/subject summaries. It does not read full message bodies. Those names and
   subjects are sent to ElevenLabs only for the requested readout.
 
-The endpoints are `/api/speak` (JSON text → MP3) and `/api/listen` (recording bytes
+The endpoints are `/api/speak` (JSON text → MP3 or Windows fallback WAV) and `/api/listen` (recording bytes
 → JSON transcript), protected by same-origin and per-process request tokens.
 Only the Python server holds the ElevenLabs key. Audio and mail are not saved.
 Local model conversation is available through Ollama (see below).

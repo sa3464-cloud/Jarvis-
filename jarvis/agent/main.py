@@ -75,7 +75,12 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == '/api/chat':
                 return self.reply(200, tools.execute(payload.get('question'), payload.get('history', [])))
             if self.path == '/api/speak':
-                return self.reply(200, voice.speak(payload.get('text'), approved=approved), 'audio/mpeg')
+                speech_text = payload.get('text')
+                try:
+                    audio = voice.speak(speech_text, approved=approved)
+                except voice.ElevenLabsQuotaError:
+                    return self.reply(200, voice.speak_locally(speech_text), 'audio/wav')
+                return self.reply(200, audio, 'audio/mpeg')
             if self.path == '/api/inbox':
                 result = tools.read_inbox()
                 return self.reply(200, {**result['card'], 'spoken': result['spoken']})

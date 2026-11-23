@@ -71,14 +71,16 @@ async function say(text) {
   deaf(); busy=true; const ticket=++generation;
   state('Thinking','Generating speech… microphone is off.');
   try {
-    const blob=await (await api('/api/speak',JSON.stringify({text}))).blob();
+    const response=await api('/api/speak',JSON.stringify({text}));
+    const localVoice=response.headers.get('Content-Type')==='audio/wav';
+    const blob=await response.blob();
     if(ticket!==generation)return;
     speechURL=URL.createObjectURL(blob);speech=new Audio(speechURL);
-    state('Speaking','Microphone is off while JARVIS speaks.');
+    state('Speaking',localVoice?'ElevenLabs credits unavailable. Using the built-in Windows voice.':'Microphone is off while JARVIS speaks.');
     await new Promise((resolve,reject)=>{speech.onended=resolve;speech.onerror=()=>reject(Error('Audio playback failed.'));speech.play().catch(reject);});
     if(ticket!==generation)return;
     URL.revokeObjectURL(speechURL);speechURL=null;speech=null;busy=false;
-    state('Idle','Speech finished.');if(enabled) await record();
+    state('Idle',localVoice?'Spoken with the built-in Windows voice.':'Speech finished.');if(enabled) await record();
   } catch(error) {if(ticket===generation){busy=false;enabled=false;state('Error',error.message);}}
 }
 async function record() {
