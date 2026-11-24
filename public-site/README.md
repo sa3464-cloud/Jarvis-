@@ -2,9 +2,8 @@
 
 Live URL: https://seth-jarvis-command-center.sa3464.chatgpt.site
 
-Sites version 1 deployed successfully with public access. Static script syntax
-and runtime CDN availability were checked. Browser automation was unavailable,
-so visual rendering and live WebGPU inference remain unverified on this device.
+The public console includes the animated AI Core HUD and links to the local
+Command Center and floating Windows assistant.
 
 Buildless static deployment. `dist/` is the complete public payload. No local
 credentials, profile, inbox, or Python source are included in the deployment.
