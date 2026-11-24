@@ -143,7 +143,8 @@ class Handler(BaseHTTPRequestHandler):
         token = self.headers.get('X-Jarvis-CSRF', '')
         embedded = path.startswith('/api/embed/')
         if not self.local_host() or self.headers.get('Origin') != origin:
-            return self.reply(403, {'error': 'Request must originate from the local JARVIS page.'})
+            return self.reply(403, {'code': 'origin_required',
+                                    'error': 'Open the local JARVIS URL or use the paired console.'})
         if embedded:
             action = path.removeprefix('/api/embed/')
             if action == 'connect':
@@ -154,7 +155,10 @@ class Handler(BaseHTTPRequestHandler):
             elif not self.server.pairing.authorized(token):
                 return self.reply(401, {'error': 'Pair this local console again to continue.'})
         elif not token.isascii() or not secrets.compare_digest(token, self.server.csrf):
-            return self.reply(403, {'error': 'Request must originate from the local JARVIS page.'})
+            return self.reply(403, {'code': 'stale_session',
+                                    # The running desktop client may still match the older prefix.
+                                    'error': 'Request must originate from the local JARVIS page. '
+                                             'Your session changed; refresh the console and try again.'})
         try:
             length = int(self.headers.get('Content-Length', '0'))
             limit = 1024 if path == '/api/embed/connect' else voice.MAX_AUDIO

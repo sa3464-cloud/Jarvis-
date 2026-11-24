@@ -6,6 +6,7 @@ const embedded = document.body.dataset.mode === 'embedded';
 let csrf, enabled = false, stream, context, captureNode, interval, speech, speechURL;
 let busy = false, generation = 0;
 let history = [];
+let statusRequest;
 for (let i=0;i<24;i++) $('bars').appendChild(document.createElement('i'));
 function setHudMeter(channel,fraction) {
   const value=`${Math.round(Math.max(0,Math.min(1,fraction))*100)}%`;
@@ -21,19 +22,46 @@ function state(name, message) {
   if(message)$('status').textContent=message;
 }
 function approved() { if(!$('approval').checked) throw Error('Enable voice for this session first.'); }
+function readLocalStatus(){
+  if(!statusRequest){
+    statusRequest=fetch('/api/status',{cache:'no-store',mode:'same-origin'})
+      .then(async response=>{
+        if(!response.ok)throw Error('Could not start a local JARVIS session.');
+        const status=await response.json();
+        if(typeof status.csrf!=='string'||!status.csrf)throw Error('The server did not provide a local JARVIS session.');
+        csrf=status.csrf;
+        return status;
+      })
+      .finally(()=>{statusRequest=undefined;});
+  }
+  return statusRequest;
+}
+
 async function api(path, body, mime='application/json') {
-  const token=csrf;
   const url=embedded?path.replace('/api/','/api/embed/'):path;
-  const response=await fetch(url,{method:'POST',headers:{'Content-Type':mime,'X-Jarvis-CSRF':token,'X-Jarvis-Voice-Approved':$('approval').checked?'yes':'no'},body});
-  if(embedded&&token!==csrf)throw Error('The local session has ended.');
-  if(!response.ok) {
+  const ticket=generation;
+  if(!embedded&&!csrf)await readLocalStatus();
+  for(let attempt=0;attempt<2;attempt++){
+    if(ticket!==generation)throw Error('The request was canceled.');
+    const token=csrf;
+    const response=await fetch(url,{
+      method:'POST',mode:'same-origin',
+      headers:{'Content-Type':mime,'X-Jarvis-CSRF':token,'X-Jarvis-Voice-Approved':$('approval').checked?'yes':'no'},
+      body,
+    });
+    if(embedded&&token!==csrf)throw Error('The local session has ended.');
+    if(response.ok)return response;
     const payload=await response.json();
+    // This error is returned before the server reads or acts on the request.
+    if(!embedded&&attempt===0&&response.status===403&&payload.code==='stale_session'){
+      if(token===csrf)showConsole(await readLocalStatus(),false);
+      continue;
+    }
     const error=new Error(payload.error||`Request failed: ${response.status}`);
     error.status=response.status;
     if(embedded&&error.status===401)lockEmbedded(error.message);
     throw error;
   }
-  return response;
 }
 function addTurn(role, text) {
   const card=document.createElement('article');const label=document.createElement('strong');
@@ -321,7 +349,7 @@ function updateClock(){
 updateClock();
 setInterval(updateClock,15000);
 
-function showConsole(status){
+function showConsole(status, announce=true){
   csrf=status.csrf;
   $('model').textContent=status.model.message;
   const provider=status.tts_provider==='fish_audio'?'Fish Audio':'ElevenLabs';
@@ -331,7 +359,7 @@ function showConsole(status){
   $('gmail-voice-note').textContent=`Sign in with your NJIT account when prompted. JARVIS leaves messages unread. When voice is enabled, sender names and subjects may go to ${provider} for speech.`;
   $('email-mode').textContent=status.demo?'Disabled in demo mode':'Read-only · sign-in on request';
   $('inbox').disabled=status.demo;
-  state('Idle',status.voice_configured?'Ready for text or voice.':'Text is ready. Set an ElevenLabs key to enable voice.');
+  if(announce)state('Idle',status.voice_configured?'Ready for text or voice.':'Text is ready. Set an ElevenLabs key to enable voice.');
   $('issue-code').disabled=false;
   $('revoke-pairing').disabled=false;
 }
@@ -375,7 +403,7 @@ if(embedded){
     }
   };
 }else{
-  fetch('/api/status').then(response=>response.json()).then(showConsole)
+  readLocalStatus().then(showConsole)
     .catch(error=>state('Error',`Server unavailable: ${error.message}`));
   $('issue-code').onclick=async()=>{
     try{

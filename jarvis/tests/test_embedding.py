@@ -54,6 +54,16 @@ class LocalEmbeddingTest(unittest.TestCase):
         self.assertIn('frame-ancestors ' + main.PUBLIC_ORIGIN, embedded[1]['Content-Security-Policy'])
         self.assertIn(b'data-mode="embedded"', embedded[2])
 
+    def test_stale_local_session_is_distinct_from_wrong_origin(self):
+        with patch.object(main.tools, 'execute') as execute:
+            for origin, reason in ((self.origin, 'stale_session'), (main.PUBLIC_ORIGIN, 'origin_required')):
+                code, headers, body = self.request('/api/chat', body={'question': 'Plan my day'},
+                                                  origin=origin, token='old-session')
+                self.assertEqual(code, 403)
+                self.assertEqual(json.loads(body)['code'], reason)
+                self.assertIsNone(headers.get('Access-Control-Allow-Origin'))
+            execute.assert_not_called()
+
     def test_pairing_is_single_use_scoped_and_revocable(self):
         issued = self.request('/api/embed-code', body={}, token=self.server.csrf)
         code = json.loads(issued[2])['code']

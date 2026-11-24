@@ -27,9 +27,10 @@ TASKS = {
 
 
 class ConsoleError(RuntimeError):
-    def __init__(self, code, message):
+    def __init__(self, code, message, reason=None):
         super().__init__(message)
         self.code = code
+        self.reason = reason
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -58,12 +59,15 @@ class Console:
                     return payload
                 return json.load(response)
         except HTTPError as error:
+            reason = None
             with error:
                 try:
-                    message = json.loads(error.read(16384)).get('error', '')
+                    payload = json.loads(error.read(16384))
+                    message = payload.get('error', '')
+                    reason = payload.get('code')
                 except (AttributeError, ValueError):
                     message = ''
-            raise ConsoleError(error.code, message or f'JARVIS returned HTTP {error.code}.') from None
+            raise ConsoleError(error.code, message or f'JARVIS returned HTTP {error.code}.', reason) from None
         except (URLError, OSError):
             raise ConsoleError(0, 'The local Command Center is unavailable. Start the JARVIS server and try again.') from None
 
@@ -81,8 +85,9 @@ class Console:
         try:
             return self.request(path, body, mime, approved)
         except ConsoleError as error:
-            # The origin guard rejects this before executing any action.
-            if error.code != 403 or not str(error).startswith('Request must originate'):
+            # Older servers used the same error for stale sessions and origin failures.
+            legacy_session_error = error.reason is None and str(error).startswith('Request must originate')
+            if error.code != 403 or not (error.reason == 'stale_session' or legacy_session_error):
                 raise
         self.status()
         return self.request(path, body, mime, approved)
