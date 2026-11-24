@@ -155,8 +155,9 @@ Local model conversation is available through Ollama (see below).
 ElevenLabs consumes account credits for generated speech and transcribed audio;
 charges/allowances depend on your plan, model, and usage. The application does not
 purchase credits or enable automatic top-ups. Review your account quota before
-enabling voice. Default models are `eleven_multilingual_v2` and requested
-`scribe_v1`; override the STT setting if your account no longer supports that model.
+enabling voice. The default ElevenLabs models are `eleven_multilingual_v2` for
+speech and `scribe_v2` for transcription. Transcription defaults to English.
+Set `ELEVENLABS_STT_LANGUAGE=auto` for automatic language detection.
 Failures are shown on screen, without exposing provider response bodies or keys.
 
 References: [Fish Audio setup](https://docs.fish.audio/developer-guide/getting-started/api-key),
@@ -176,9 +177,10 @@ This laptop is configured with `OLLAMA_NUM_GPU=0` because its GPU path timed out
 during verification. CPU inference was responsive. Remove that setting to retry
 automatic GPU selection later.
 
-Type a question and click **Ask JARVIS** or press Enter (Shift+Enter adds a line).
-With microphone and voice enabled, each recorded turn is
-transcribed, answered locally, then spoken. Listening resumes after playback.
+Type a question and click **Send** or press Enter (Shift+Enter adds a line).
+After a microphone turn, check the transcript in the message box. Edit it or
+choose **Record again** if needed. Click **Send transcript** or press Enter to
+get a spoken reply. Listening resumes after playback in the Command Center.
 The last 10 turns stay in page memory for follow-ups such as “why?” or “the second
 one.” Reloading the page or **New conversation** clears that context.
 

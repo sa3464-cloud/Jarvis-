@@ -260,10 +260,10 @@ try {
     $audio.Position = 0
     # INPUT_SETUP
     $engine.LoadGrammar([System.Speech.Recognition.DictationGrammar]::new())
-    $engine.EndSilenceTimeout = [timespan]::FromMilliseconds(850)
-    $engine.EndSilenceTimeoutAmbiguous = [timespan]::FromMilliseconds(900)
+    $engine.EndSilenceTimeout = [timespan]::FromMilliseconds(1500)
+    $engine.EndSilenceTimeoutAmbiguous = [timespan]::FromMilliseconds(1750)
     $result = $engine.Recognize([timespan]::FromSeconds(30))
-    if ($result) { [Console]::Write($result.Text) }
+    if ($result -and $result.Confidence -ge 0.35) { [Console]::Write($result.Text) }
 } finally {
     $engine.Dispose()
     $audio.Dispose()
@@ -306,12 +306,21 @@ def listen(audio, mime='audio/webm', *, approved=False):
     if mime not in extensions or not audio or len(audio) > MAX_AUDIO:
         raise ValueError('Audio must be a supported recording under 12 MB.')
     boundary = 'jarvis' + secrets.token_hex(16)
-    model = settings().get('ELEVENLABS_STT_MODEL', 'scribe_v1')
+    config = settings()
+    model = config.get('ELEVENLABS_STT_MODEL', 'scribe_v2')
     if not re.fullmatch(r'[a-zA-Z0-9_]+', model):
         raise ValueError('Invalid transcription model configuration.')
-    body = (f'--{boundary}\r\nContent-Disposition: form-data; name="model_id"\r\n\r\n{model}\r\n'
-            f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="recording.{extensions[mime]}"\r\n'
-            f'Content-Type: {mime}\r\n\r\n').encode() + audio + f'\r\n--{boundary}--\r\n'.encode()
+    language = config.get('ELEVENLABS_STT_LANGUAGE', 'eng').strip().lower()
+    fields = {'model_id': model, 'tag_audio_events': 'false'}
+    if language != 'auto':
+        if not re.fullmatch(r'[a-z]{2,3}', language):
+            raise ValueError('Use a two- or three-letter transcription language code, or auto.')
+        fields['language_code'] = language
+    prefix = ''.join(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'
+                     for name, value in fields.items())
+    header = (f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="recording.{extensions[mime]}"\r\n'
+              f'Content-Type: {mime}\r\n\r\n')
+    body = (prefix + header).encode() + audio + f'\r\n--{boundary}--\r\n'.encode()
     try:
         result = json.loads(_request('/v1/speech-to-text', body, f'multipart/form-data; boundary={boundary}', 'application/json'))
         text = result['text']

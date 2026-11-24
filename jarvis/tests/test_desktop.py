@@ -1,9 +1,11 @@
 import io
+from queue import Queue
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import wave
 
 from jarvis.agent import voice
+from jarvis.agent.desktop import Desktop
 from jarvis.agent.desktop_audio import signal
 from jarvis.agent.desktop_hud import Spring, layout_target, PANEL_W
 
@@ -30,6 +32,16 @@ class DesktopMotionTest(unittest.TestCase):
 
 
 class DesktopAudioTest(unittest.TestCase):
+    def test_transcript_is_editable_and_requires_explicit_send(self):
+        desktop = Mock()
+        desktop.job = 1
+        desktop.events = Queue()
+        desktop.events.put(('transcript', 1, '  Open the wrong site  '))
+        Desktop.process_events(desktop)
+        desktop.entry.insert.assert_called_once_with(0, 'Open the wrong site')
+        desktop.change_state.assert_called_once_with('idle')
+        desktop.submit.assert_not_called()
+
     def test_waveform_and_energy_keep_actual_sample_sign_and_level(self):
         peaks, energy = signal([-16384, 16384, -16384, 16384], points=4)
         self.assertEqual(peaks, (-.5, .5, -.5, .5))

@@ -13,7 +13,7 @@ from urllib.request import Request, ProxyHandler, HTTPRedirectHandler, build_ope
 import wave
 
 from . import tools, voice
-from .desktop_audio import Microphone, Playback, microphone_signal
+from .desktop_audio import MIC_RATE, Microphone, Playback, microphone_signal
 from .desktop_hud import (TRANSPARENT, PANEL, INK, MUTED, WIDTH, HEIGHT, CORE_Y,
                           PANEL_W, PANEL_Y, PANEL_H, Hologram, Spring, core_x, layout_target)
 
@@ -367,29 +367,41 @@ class Desktop:
             return
         self.samples = bytearray()
         self.capture_start = self.last_sound = time.monotonic()
-        self.heard = False
+        self.speech_start = None
+        self.last_voice_byte = self.candidate_start = self.voiced_bytes = 0
         self.change_state('listening', 'Listening · tap the core to finish')
 
     def read_microphone(self, now):
         pcm = self.mic.read()
         if pcm:
+            chunk_start = len(self.samples)
             self.samples.extend(pcm)
             self.waveform, self.energy = microphone_signal(pcm)
             if self.energy >= .021:
-                self.last_sound, self.heard = now, True
-        if (self.heard and now - self.last_sound >= .95) or now - self.capture_start >= 29.5:
+                if not self.voiced_bytes:
+                    self.candidate_start = chunk_start
+                self.last_sound, self.last_voice_byte = now, len(self.samples)
+                self.voiced_bytes += min(len(pcm), MIC_RATE * 2 // 25)
+                if self.speech_start is None and self.voiced_bytes >= MIC_RATE * 2 * .11:
+                    self.speech_start = self.candidate_start
+            elif self.speech_start is None and now - self.last_sound >= .09:
+                self.voiced_bytes = 0
+        if (self.speech_start is not None and now - self.last_sound >= 1.45) or now - self.capture_start >= 29.5:
             self.finish_listening()
 
     def finish_listening(self):
         self.samples.extend(self.mic.finish())
         self.mic = None
         self.waveform, self.energy = (), 0.0
-        if not self.heard:
+        if self.speech_start is None:
+            self.samples.clear()
             self.change_state('idle')
             self.expand()
             self.display('No speech was detected. Tap the core to try again or type a question.')
             return
-        wav = voice.pcm_wave(bytes(self.samples[:30 * 16000 * 2]))
+        start = max(0, self.speech_start - int(.35 * MIC_RATE) * 2)
+        end = min(self.last_voice_byte + int(.45 * MIC_RATE) * 2, 30 * MIC_RATE * 2)
+        wav = voice.pcm_wave(bytes(self.samples[start:end]))
         self.samples.clear()
         self.job += 1
         self.change_state('thinking', 'Transcribing your recording')
@@ -400,8 +412,8 @@ class Desktop:
     def send_entry(self):
         self.submit(self.entry.get())
 
-    def submit(self, question, from_voice=False):
-        if not from_voice and self.status in ('listening', 'thinking', 'executing', 'speaking'):
+    def submit(self, question):
+        if self.status in ('listening', 'thinking', 'executing', 'speaking'):
             return
         question = question.strip()
         if not question:
@@ -464,10 +476,14 @@ class Desktop:
             elif kind == 'failed':
                 self.failed(result)
             elif kind == 'transcript':
-                if result.strip():
-                    self.submit(result, from_voice=True)
+                self.change_state('idle')
+                transcript = result.strip()
+                if transcript:
+                    self.entry.delete(0, 'end')
+                    self.entry.insert(0, transcript)
+                    self.entry.focus_set()
+                    self.display('Check or edit what JARVIS heard below, then click Send or press Enter.')
                 else:
-                    self.change_state('idle')
                     self.display('No words were recognized. Tap the core again or type below.')
             elif kind == 'answer':
                 text = result['answer']

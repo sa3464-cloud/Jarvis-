@@ -79,6 +79,32 @@ class WindowsMicrophoneTest(unittest.TestCase):
             recognize.assert_not_called()
 
 
+class ElevenLabsMicrophoneTest(unittest.TestCase):
+    def test_transcription_defaults_to_english_without_audio_event_tags(self):
+        audio = voice.pcm_wave(b'\x00\x00')
+        with (
+            patch.object(voice, 'settings', return_value={}),
+            patch.object(voice, '_request', return_value=b'{"text":"What is a resistor?"}') as request,
+        ):
+            self.assertEqual(voice.listen(audio, 'audio/wav', approved=True), 'What is a resistor?')
+        body = request.call_args.args[1]
+        self.assertIn(b'name="model_id"\r\n\r\nscribe_v2\r\n', body)
+        self.assertIn(b'name="language_code"\r\n\r\neng\r\n', body)
+        self.assertIn(b'name="tag_audio_events"\r\n\r\nfalse\r\n', body)
+        self.assertIn(audio, body)
+
+    def test_explicit_model_and_automatic_language_detection_are_supported(self):
+        config = {'ELEVENLABS_STT_MODEL': 'scribe_v1', 'ELEVENLABS_STT_LANGUAGE': 'auto'}
+        with (
+            patch.object(voice, 'settings', return_value=config),
+            patch.object(voice, '_request', return_value=b'{"text":""}') as request,
+        ):
+            self.assertEqual(voice.listen(b'audio', approved=True), '')
+        body = request.call_args.args[1]
+        self.assertIn(b'name="model_id"\r\n\r\nscribe_v1\r\n', body)
+        self.assertNotIn(b'name="language_code"', body)
+
+
 class FishAudioTest(unittest.TestCase):
     config = {'JARVIS_TTS_PROVIDER': 'fish_audio', 'FISH_AUDIO_REFERENCE_ID': 'fixture-voice',
               'FISH_API_KEY': 'fish-test-only', 'ELEVENLABS_API_KEY': 'eleven-test-only'}
