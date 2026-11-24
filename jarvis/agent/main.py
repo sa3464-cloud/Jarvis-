@@ -49,7 +49,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, {'voice_configured': voice.configured(), 'csrf': self.server.csrf,
                                     'demo': data.status()['demo'], 'model': conversation.status()})
         files = {'/': ('voice.html', 'text/html; charset=utf-8'), '/voice.js': ('voice.js', 'text/javascript'),
-                 '/voice.css': ('voice.css', 'text/css')}
+                 '/voice.css': ('voice.css', 'text/css'), '/voice-capture.js': ('voice-capture.js', 'text/javascript')}
         if path not in files:
             return self.reply(404, {'error': 'Not found'})
         name, mime = files[path]

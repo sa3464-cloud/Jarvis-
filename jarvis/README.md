@@ -100,7 +100,7 @@ user account; POSIX installations should use `chmod 600 jarvis/.env`.
   for the current page session. No separate checkbox step is needed. Uncheck
   **Voice enabled for this session** to revoke that approval and stop the mic.
 - **Speak text** sends up to 4,000 characters to ElevenLabs and plays MP3 audio.
-- **Start microphone** records using MediaRecorder. Actual microphone levels
+- **Start microphone** records WAV audio. Actual microphone levels
   drive the bars; 900 ms of silence after speech ends the turn. Transcripts appear
   after each turn, not as real-time partial words. Continuous listening resumes
   after transcription. Silence with no speech stops recording after 30 seconds.
