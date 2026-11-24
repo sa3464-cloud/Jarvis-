@@ -84,8 +84,8 @@ sign-in.
   inbox controls, and **Dismiss** to retract it.
 - Select **Minimize** for the compact orb and tap it to restore. Use **Hide** or
   **Ctrl+Alt+J** to hide/show JARVIS. **Exit** is in the panel.
-- Check **Enable voice**, then tap the core to talk. Silence sends the turn, and
-  tapping again finishes it early. Escape stops microphone or reply audio.
+- Check **Hands-free voice** and speak. A pause submits the question, and JARVIS
+  listens again after its reply. Say “stop listening” or press Escape to stop.
   Audio stays in memory. ElevenLabs transcribes the microphone. Reply text goes
   to the configured speech provider, with Windows speech as a fallback.
 - The waveform and speaking ring follow Windows' real playback position.
@@ -178,12 +178,10 @@ during verification. CPU inference was responsive. Remove that setting to retry
 automatic GPU selection later.
 
 Type a question and click **Send** or press Enter (Shift+Enter adds a line).
-After a microphone turn, check the transcript in the message box. Edit it or
-choose **Record again** if needed. Click **Send transcript** or press Enter to
-get a spoken reply. Listening resumes after playback in the Command Center.
-Choose **Finish recording** to transcribe immediately without waiting for the
-automatic pause. If transcription returns no words, JARVIS listens for one
-more attempt. **Stop / mute** ends the voice session.
+Click **Start microphone** once, then speak naturally. JARVIS sends each
+transcript as a chat turn after you pause, speaks the answer, and listens
+again. **Finish recording** is an optional shortcut. Say “stop listening”
+or choose **Stop / mute** to end the voice session.
 The last 10 turns stay in page memory for follow-ups such as “why?” or “the second
 one.” Reloading the page or **New conversation** clears that context.
 

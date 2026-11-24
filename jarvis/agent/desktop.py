@@ -4,6 +4,7 @@ from ctypes import wintypes as wt
 import json
 import math
 import os
+import re
 from queue import Empty, Queue
 from threading import Thread
 import time
@@ -43,6 +44,7 @@ class Console:
     def __init__(self, port=8767):
         self.origin = f'http://127.0.0.1:{port}'
         self.token = ''
+        self.cloud_recognition = True
         self.opener = build_opener(ProxyHandler({}), NoRedirect())
 
     def request(self, path, body=None, mime='application/json', approved=False):
@@ -74,6 +76,7 @@ class Console:
     def status(self):
         response = self.request('/api/status')
         self.token = response['csrf']
+        self.cloud_recognition &= response.get('voice_configured', True)
         return response
 
     def post(self, path, content, *, approved=False):
@@ -96,13 +99,17 @@ class Console:
         return self.post('/api/chat', {'question': question, 'history': history})
 
     def transcribe(self, audio):
-        try:
-            transcript = self.post('/api/listen', audio, approved=True)['text'].strip()
-            if transcript:
-                return transcript
-        except ConsoleError as error:
-            if error.code != 402:
-                raise
+        if not self.token:
+            self.status()
+        if self.cloud_recognition:
+            try:
+                transcript = self.post('/api/listen', audio, approved=True)['text'].strip()
+                if transcript:
+                    return transcript
+            except ConsoleError as error:
+                if error.code not in (402, 502):
+                    raise
+                self.cloud_recognition = False
         return self.post('/api/listen/local', audio, approved=True)['text']
 
     def speech(self, text):
@@ -227,7 +234,7 @@ class Desktop:
         self.reader = tk.Text(panel, wrap='word', height=5, bg='#06131f', fg=INK, padx=9, pady=7,
                               relief='flat', font=('Segoe UI', 10), highlightthickness=0)
         self.reader.pack(fill='both', expand=True, pady=(7, 6))
-        self.display(f'Tap the core to talk or type below. Drag the core to move it. Use {SHORTCUT} to show or hide it.')
+        self.display(f'Enable hands-free voice to talk or type below. Drag the core to move it. Use {SHORTCUT} to show or hide it.')
         self.entry = tk.Entry(panel, bg='#0c2636', fg=INK, insertbackground=INK,
                               relief='flat', font=('Segoe UI', 11))
         self.entry.pack(fill='x', ipady=4)
@@ -235,7 +242,7 @@ class Desktop:
         controls = tk.Frame(panel, bg=PANEL)
         controls.pack(fill='x', pady=(6, 0))
         self.voice_enabled = tk.BooleanVar(value=False)
-        tk.Checkbutton(controls, text='Enable voice', variable=self.voice_enabled,
+        tk.Checkbutton(controls, text='Hands-free voice', variable=self.voice_enabled,
                        command=self.voice_toggled, highlightthickness=0,
                        bg=PANEL, fg=INK, activebackground=PANEL, activeforeground=INK,
                        selectcolor='#102d3d').pack(side='left')
@@ -243,7 +250,7 @@ class Desktop:
             tk.Button(controls, text=label, command=action, bg='#124258', fg=INK,
                       activebackground='#1b556a', activeforeground=INK,
                       relief='flat', padx=9).pack(side='right', padx=(5, 0))
-        tk.Label(panel, text='Mic: ElevenLabs. Reply text: configured voice provider (Fish Audio or ElevenLabs).',
+        tk.Label(panel, text='Mic: ElevenLabs or Windows. Replies use the configured voice. Say “stop listening” to stop.',
                  bg=PANEL, fg=MUTED, anchor='w', justify='left', wraplength=PANEL_W - 30,
                  font=('Segoe UI', 8)).pack(fill='x', pady=(4, 0))
         return panel
@@ -321,17 +328,20 @@ class Desktop:
             self.expand()
             self.display(f'{SHORTCUT} is unavailable. Use Minimize to keep a small core on screen.')
             return
-        if self.status in ('listening', 'speaking', 'thinking'):
+        if self.voice_enabled.get():
             self.stop_voice()
         self.root.withdraw()
         self.hidden = True
 
     def voice_toggled(self):
-        if not self.voice_enabled.get() and self.status in ('listening', 'speaking'):
+        if not self.voice_enabled.get():
             self.stop_voice()
+        elif self.status in ('idle', 'complete', 'error'):
+            self.start_listening()
 
     def stop_voice(self):
         self.job += 1
+        self.voice_enabled.set(False)
         if self.mic:
             self.mic.close()
             self.mic = None
@@ -342,7 +352,7 @@ class Desktop:
         self.change_state('idle')
 
     def escape(self):
-        if self.status in ('listening', 'speaking', 'thinking'):
+        if self.voice_enabled.get():
             self.stop_voice()
         else:
             self.expand(False)
@@ -358,20 +368,25 @@ class Desktop:
             return
         if not self.voice_enabled.get():
             self.expand()
-            self.display('Check Enable voice, then tap the core to speak. You can also type below.')
+            self.display('Check Hands-free voice to start listening. You can also type below.')
             return
         if self.status == 'speaking':
             self.stop_voice()
+            return
+        self.start_listening()
+
+    def start_listening(self):
         try:
             self.mic = self.mic_factory()
         except (RuntimeError, OSError) as error:
             self.failed(str(error))
             return
         self.samples = bytearray()
-        self.capture_start = self.last_sound = time.monotonic()
+        self.last_sound = time.monotonic()
         self.speech_start = None
         self.last_voice_byte = self.candidate_start = self.voiced_bytes = 0
-        self.change_state('listening', 'Listening · tap the core to finish')
+        self.noise_floor = .003
+        self.change_state('listening', 'Hands-free listening')
 
     def read_microphone(self, now):
         pcm = self.mic.read()
@@ -379,30 +394,36 @@ class Desktop:
             chunk_start = len(self.samples)
             self.samples.extend(pcm)
             self.waveform, self.energy = microphone_signal(pcm)
-            if self.energy >= .021:
+            if self.energy >= max(.005, self.noise_floor * 2.8):
                 if not self.voiced_bytes:
                     self.candidate_start = chunk_start
                 self.last_sound, self.last_voice_byte = now, len(self.samples)
                 self.voiced_bytes += min(len(pcm), MIC_RATE * 2 // 25)
-                if self.speech_start is None and self.voiced_bytes >= MIC_RATE * 2 * .11:
+                if self.speech_start is None and self.voiced_bytes >= MIC_RATE * 2 * .16:
                     self.speech_start = self.candidate_start
-            elif self.speech_start is None and now - self.last_sound >= .09:
-                self.voiced_bytes = 0
-        if (self.speech_start is not None and now - self.last_sound >= 1.45) or now - self.capture_start >= 29.5:
+            else:
+                self.noise_floor += .06 * (self.energy - self.noise_floor)
+                if self.speech_start is None and now - self.last_sound >= .09:
+                    self.voiced_bytes = 0
+        if self.speech_start is None:
+            before = self.candidate_start if self.voiced_bytes else len(self.samples)
+            discard = max(0, before - int(.35 * MIC_RATE) * 2)
+            del self.samples[:discard]
+            self.candidate_start = max(0, self.candidate_start - discard)
+            self.last_voice_byte = max(0, self.last_voice_byte - discard)
+        elif now - self.last_sound >= 1.45 or len(self.samples) - self.speech_start >= 29.5 * MIC_RATE * 2:
             self.finish_listening()
 
     def finish_listening(self):
+        if self.speech_start is None:
+            self.expand()
+            self.display('No speech detected yet. JARVIS is still listening.')
+            return
         self.samples.extend(self.mic.finish())
         self.mic = None
         self.waveform, self.energy = (), 0.0
-        if self.speech_start is None:
-            self.samples.clear()
-            self.change_state('idle')
-            self.expand()
-            self.display('No speech was detected. Tap the core to try again or type a question.')
-            return
         start = max(0, self.speech_start - int(.35 * MIC_RATE) * 2)
-        end = min(self.last_voice_byte + int(.45 * MIC_RATE) * 2, 30 * MIC_RATE * 2)
+        end = min(self.last_voice_byte + int(.45 * MIC_RATE) * 2, start + 30 * MIC_RATE * 2)
         wav = voice.pcm_wave(bytes(self.samples[start:end]))
         self.samples.clear()
         self.job += 1
@@ -415,7 +436,7 @@ class Desktop:
         self.submit(self.entry.get())
 
     def submit(self, question):
-        if self.status in ('listening', 'thinking', 'executing', 'speaking'):
+        if self.status in ('thinking', 'executing', 'speaking'):
             return
         question = question.strip()
         if not question:
@@ -425,6 +446,10 @@ class Desktop:
         except ValueError as error:
             self.failed(str(error))
             return
+        if self.mic:
+            self.mic.close()
+            self.mic = None
+            self.samples.clear()
         self.job += 1
         self.entry.delete(0, 'end')
         self.question = question
@@ -480,13 +505,15 @@ class Desktop:
             elif kind == 'transcript':
                 self.change_state('idle')
                 transcript = result.strip()
-                if transcript:
-                    self.entry.delete(0, 'end')
-                    self.entry.insert(0, transcript)
-                    self.entry.focus_set()
-                    self.display('Check or edit what JARVIS heard below, then click Send or press Enter.')
-                else:
-                    self.display('No words were recognized. Tap the core again or type below.')
+                if re.fullmatch(r'(?:(?:hey\s+)?jarvis[,.!\s]+)?(?:stop listening|mute (?:the )?microphone)[.!?]*',
+                                transcript, re.I):
+                    self.stop_voice()
+                    self.display('Microphone stopped by voice command.')
+                elif any(character.isalnum() for character in transcript):
+                    self.submit(transcript)
+                elif self.voice_enabled.get() and not self.hidden:
+                    self.display('I didn’t catch that. Go ahead and say it again.')
+                    self.start_listening()
             elif kind == 'answer':
                 text = result['answer']
                 if not result.get('model_missing'):
@@ -528,6 +555,8 @@ class Desktop:
             self.failed(str(error))
         if self.status == 'complete' and now >= self.complete_until:
             self.change_state('idle')
+            if self.voice_enabled.get() and not self.hidden:
+                self.start_listening()
         for spring in (self.x, self.y, self.panel):
             if self.reduced:
                 spring.value, spring.velocity = spring.target, 0

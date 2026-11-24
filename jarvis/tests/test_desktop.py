@@ -32,14 +32,22 @@ class DesktopMotionTest(unittest.TestCase):
 
 
 class DesktopAudioTest(unittest.TestCase):
-    def test_transcript_is_editable_and_requires_explicit_send(self):
+    def test_transcript_starts_a_chat_turn_without_enter(self):
         desktop = Mock()
         desktop.job = 1
         desktop.events = Queue()
-        desktop.events.put(('transcript', 1, '  Open the wrong site  '))
+        desktop.events.put(('transcript', 1, '  Explain how a resistor works  '))
         Desktop.process_events(desktop)
-        desktop.entry.insert.assert_called_once_with(0, 'Open the wrong site')
         desktop.change_state.assert_called_once_with('idle')
+        desktop.submit.assert_called_once_with('Explain how a resistor works')
+
+    def test_voice_stop_command_does_not_start_a_chat_turn(self):
+        desktop = Mock()
+        desktop.job = 1
+        desktop.events = Queue()
+        desktop.events.put(('transcript', 1, 'Hey JARVIS, stop listening.'))
+        Desktop.process_events(desktop)
+        desktop.stop_voice.assert_called_once_with()
         desktop.submit.assert_not_called()
 
     def test_waveform_and_energy_keep_actual_sample_sign_and_level(self):
