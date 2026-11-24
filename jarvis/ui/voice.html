@@ -30,9 +30,24 @@
       <div class="overview" id="console">
         <section class="panel core" aria-labelledby="voice-title">
           <h1 id="voice-title">Voice console</h1>
-          <div id="reactor" class="orb" data-state="idle" aria-hidden="true">
-            <span class="orbit"></span><span class="orbit orbit-secondary"></span>
-            <strong>J A R V I S <small>AI CORE</small></strong>
+          <div id="reactor" class="hud" data-state="idle" aria-hidden="true">
+            <div class="hud-floor"></div>
+            <div class="hud-scan"></div>
+            <div class="orb">
+              <span class="hud-scale"></span>
+              <span class="hud-sweep"></span>
+              <span class="hud-dial"></span>
+              <span class="orbit"></span><span class="orbit orbit-secondary"></span>
+              <strong>J A R V I S <small>AI CORE</small></strong>
+            </div>
+            <div class="hud-readout hud-mic">
+              <span>Mic level</span><strong id="hud-mic">0%</strong>
+              <div class="hud-meter"></div>
+            </div>
+            <div class="hud-readout hud-playback">
+              <span>Playback</span><strong id="hud-playback">0%</strong>
+              <div class="hud-meter"></div>
+            </div>
           </div>
           <div class="voice-indicators">
             <span id="state" class="badge">Idle</span>

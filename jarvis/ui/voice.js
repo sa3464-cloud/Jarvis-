@@ -6,7 +6,19 @@ let csrf, enabled = false, stream, context, captureNode, interval, speech, speec
 let busy = false, generation = 0;
 let history = [];
 for (let i=0;i<24;i++) $('bars').appendChild(document.createElement('i'));
-function state(name, message) { $('state').textContent=name; $('reactor').dataset.state=name.toLowerCase(); if(message) $('status').textContent=message; }
+function setHudMeter(channel,fraction) {
+  const value=`${Math.round(Math.max(0,Math.min(1,fraction))*100)}%`;
+  const readout=$(`hud-${channel}`);
+  if(readout.textContent===value)return;
+  readout.textContent=value;
+  $('reactor').style.setProperty(`--hud-${channel}`,value);
+}
+function state(name, message) {
+  $('state').textContent=name;
+  $('reactor').dataset.state=name.toLowerCase();
+  if(name==='Idle'||name==='Error')setHudMeter('playback',0);
+  if(message)$('status').textContent=message;
+}
 function approved() { if(!$('approval').checked) throw Error('Approve ElevenLabs credit use before using voice.'); }
 async function api(path, body, mime='application/json') {
   const response=await fetch(path,{method:'POST',headers:{'Content-Type':mime,'X-Jarvis-CSRF':csrf,'X-Jarvis-Voice-Approved':$('approval').checked?'yes':'no'},body});
@@ -66,6 +78,7 @@ function deaf() {
   if(stream) stream.getTracks().forEach(track=>track.stop()); stream=null;
   if(context) context.close().catch(()=>{}); context=null;
   for(const bar of $('bars').children) bar.style.height='3px';
+  setHudMeter('mic',0);
 }
 function stop() {
   generation++; enabled=false; deaf(); busy=false;
@@ -78,6 +91,7 @@ async function say(text) {
   if(speech){speech.pause();speech.src='';speech=null;}
   if(speechURL){URL.revokeObjectURL(speechURL);speechURL=null;}
   deaf(); busy=true; const ticket=++generation;
+  setHudMeter('playback',0);
   state('Thinking','Generating speech… microphone is off.');
   try {
     const response=await api('/api/speak',JSON.stringify({text}));
@@ -97,6 +111,11 @@ async function say(text) {
       };
       playback.onpause=()=>{
         if(ticket===generation&&!playback.ended)state('Idle','Playback paused.');
+      };
+      playback.ontimeupdate=()=>{
+        if(ticket===generation&&Number.isFinite(playback.duration)&&playback.duration>0){
+          setHudMeter('playback',playback.currentTime/playback.duration);
+        }
       };
       playback.onended=resolve;
       playback.onerror=()=>reject(Error('Audio playback failed.'));
@@ -218,6 +237,7 @@ async function record() {
   const samples=new Float32Array(analyser.fftSize);
   interval=setInterval(()=>{
     analyser.getFloatTimeDomainData(samples);const level=Math.sqrt(samples.reduce((sum,x)=>sum+x*x,0)/samples.length);
+    setHudMeter('mic',level*5);
     for(const [i,bar] of [...$('bars').children].entries())bar.style.height=`${3+Math.min(22,level*240)*(0.5+0.5*Math.sin(i))}px`;
     const now=Date.now();if(level>LEVEL_THRESHOLD){heard=true;lastVoice=now;}
     if(!heard&&now-started>=MAX_TURN_MS){stop();state('Idle','No speech detected for 30 seconds. Microphone stopped; no transcription requested.');return;}
