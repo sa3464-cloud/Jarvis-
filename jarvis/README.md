@@ -94,6 +94,17 @@ sign-in.
 
 ## Local Command Center
 
+To use the local console on the main JARVIS site, open the
+[hosted Command Center](https://seth-jarvis-command-center.sa3464.chatgpt.site)
+directly in Chrome on the Windows PC running JARVIS. Choose **Use local PC** and
+allow loopback access if Chrome asks. Use **Get a pairing code** to open the local
+pairing controls in another tab, generate a code, and paste it into the local
+frame on the hosted page. Codes are single-use and expire after five minutes.
+The session ends on disconnect, server restart, or after four hours. The local
+console's **Disconnect hosted session** button also revokes access. The hosted
+page can check availability, but browser isolation keeps local chat, audio,
+Gmail, and the pairing code inside the local frame.
+
 JARVIS replies using **Eldrin — Crisp British Baritone**, a male British voice.
 Change `ELEVENLABS_VOICE_ID` in `jarvis/.env` to choose another voice. This setting
 applies to ElevenLabs replies, including conversation and email summaries.

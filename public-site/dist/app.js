@@ -31,7 +31,7 @@ $('ask-form').onsubmit=event=>{
   const question=$('question').value.trim();if(!question)return;
   if(asksForInbox(question)){
     add('user',question);
-    add('assistant','Open the local Command Center under Connections to read your Gmail on your PC.');
+    add('assistant','Choose Use local PC at the top of the page to pair JARVIS and read your Gmail on your PC.');
     $('question').value='';
     return;
   }
@@ -43,3 +43,49 @@ $('clear').onclick=()=>{if(busy)$('stop').click();history=[];$('messages').repla
 document.querySelectorAll('[data-question]').forEach(button=>button.onclick=()=>{$('question').value=button.dataset.question;$('question').focus();});
 function clock(){$('clock').textContent=new Date().toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'America/New_York',timeZoneName:'short'});}clock();setInterval(clock,30000);
 if(!navigator.gpu)status('This browser does not expose WebGPU. Use a supported Chrome or Edge device, or open the desktop console.');
+
+const localOrigin='http://127.0.0.1:8767';
+let localAttempt;
+function showMode(local){
+  $('browser-mode').hidden=local;
+  $('local-mode').hidden=!local;
+  $('local-toggle').textContent=local?'Use browser AI':'Use local PC';
+  $('local-toggle').setAttribute('aria-pressed',String(local));
+  if(!local){
+    localAttempt?.abort();
+    $('local-frame').removeAttribute('src');
+    $('local-frame').hidden=true;
+  }
+}
+
+async function openLocal(){
+  showMode(true);
+  localAttempt?.abort();
+  const attempt=new AbortController();
+  localAttempt=attempt;
+  $('local-retry').hidden=true;
+  $('local-status').textContent='Checking the JARVIS server on this PC. Allow loopback access if Chrome asks.';
+  let timeout;
+  try{
+    timeout=setTimeout(()=>attempt.abort(),25000);
+    const response=await fetch(localOrigin+'/embed-ready',{
+      mode:'cors',credentials:'omit',targetAddressSpace:'loopback',signal:attempt.signal,
+    });
+    if(!response.ok)throw Error('The local server did not accept this site.');
+    if(attempt!==localAttempt||$('local-mode').hidden)return;
+    $('local-frame').src=localOrigin+'/embedded';
+    $('local-frame').hidden=false;
+    $('local-status').textContent='Generate a code on your PC and enter it in the local console below.';
+  }catch(error){
+    if(attempt!==localAttempt||$('local-mode').hidden)return;
+    $('local-retry').hidden=false;
+    $('local-status').textContent='Could not reach the local console. Start JARVIS and allow this site to access loopback on this PC, then retry.';
+  }finally{
+    clearTimeout(timeout);
+  }
+}
+
+$('local-toggle').onclick=()=>{$('local-mode').hidden?openLocal():showMode(false);};
+$('local-connect').onclick=openLocal;
+$('local-retry').onclick=openLocal;
+document.querySelectorAll('aside nav a').forEach(link=>link.addEventListener('click',()=>showMode(false)));

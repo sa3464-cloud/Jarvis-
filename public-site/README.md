@@ -14,9 +14,12 @@ device. Conversation state stays in page memory and clears on reload. Supported
 WebGPU hardware, network access to the engine/model hosts, and adequate device
 memory/storage are required. Model inference has no cloud API key.
 
-Email and ElevenLabs voice remain desktop features. The public site does not
-expose the localhost backend or copy provider secrets. A full hosted voice/email
-assistant needs separately authenticated server-side integrations and compute.
+**Use local PC** opens an embedded loopback console once JARVIS is running. The
+user generates a one-time code in the standalone local console and enters it
+inside the local frame. Voice, chat, and Gmail requests go directly to the PC
+from that frame, which the public page cannot read. No local credentials are
+uploaded to Sites. Open the published URL directly in Chrome and allow browser
+loopback access if prompted.
 
 Hosting identity is in `.openai/hosting.json`. Publish using the Sites workflow
 helper and a temporary sanitized checkout; do not initialize a nested Git repo

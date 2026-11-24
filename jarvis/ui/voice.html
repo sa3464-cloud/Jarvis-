@@ -6,7 +6,18 @@
   <title>JARVIS · Command Center</title>
   <link rel="stylesheet" href="/voice.css">
 </head>
-<body>
+<body data-mode="standalone">
+  <section class="panel pairing-gate" id="pairing-gate" aria-labelledby="pairing-title">
+    <h1 id="pairing-title">Connect to JARVIS on this PC</h1>
+    <p>Generate a one-time code in the local Command Center, then enter it here. This frame runs on your PC.</p>
+    <a href="/#pairing-tools" target="_blank" rel="noopener noreferrer">Open local pairing controls</a>
+    <form id="pairing-form">
+      <label for="pairing-code">Pairing code</label>
+      <input id="pairing-code" type="password" required maxlength="32" autocomplete="off" spellcheck="false">
+      <button id="pair-submit" type="submit">Pair this console</button>
+    </form>
+    <p id="pairing-message" role="status"></p>
+  </section>
   <div class="shell">
     <aside class="sidebar">
       <a class="brand" href="/">
@@ -24,6 +35,7 @@
     <main>
       <header class="topbar">
         <span class="badge"><span class="dot" aria-hidden="true"></span> LOCAL CONSOLE</span>
+        <button type="button" class="quiet" id="embed-disconnect">Disconnect</button>
         <time id="clock" aria-label="Eastern time"></time>
       </header>
 
@@ -103,6 +115,17 @@
         </div>
         <p>Sign in with your NJIT account when prompted. JARVIS leaves messages unread. If voice is enabled, speech may send sender names and subjects to ElevenLabs.</p>
         <div id="cards" aria-live="polite"></div>
+      </section>
+      <section class="panel connections" id="pairing-tools" aria-labelledby="pairing-tools-title">
+        <h2 id="pairing-tools-title">Connect the hosted Command Center</h2>
+        <p>Use a one-time code to open this local console inside the hosted JARVIS site. Codes expire after five minutes.</p>
+        <div class="actions">
+          <button id="issue-code" type="button" disabled>Generate pairing code</button>
+          <button id="revoke-pairing" type="button" class="quiet" disabled>Disconnect hosted session</button>
+        </div>
+        <label for="issued-code" id="issued-code-label" hidden>Copy this code into the hosted console</label>
+        <input id="issued-code" type="text" readonly hidden autocomplete="off" spellcheck="false">
+        <p id="issued-code-message" role="status"></p>
       </section>
     </main>
   </div>

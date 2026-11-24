@@ -2,6 +2,7 @@ const SILENCE_MS = 900;
 const LEVEL_THRESHOLD = 0.025;
 const MAX_TURN_MS = 30000;
 const $ = id => document.getElementById(id);
+const embedded = document.body.dataset.mode === 'embedded';
 let csrf, enabled = false, stream, context, captureNode, interval, speech, speechURL;
 let busy = false, generation = 0;
 let history = [];
@@ -21,11 +22,15 @@ function state(name, message) {
 }
 function approved() { if(!$('approval').checked) throw Error('Approve ElevenLabs credit use before using voice.'); }
 async function api(path, body, mime='application/json') {
-  const response=await fetch(path,{method:'POST',headers:{'Content-Type':mime,'X-Jarvis-CSRF':csrf,'X-Jarvis-Voice-Approved':$('approval').checked?'yes':'no'},body});
+  const token=csrf;
+  const url=embedded?path.replace('/api/','/api/embed/'):path;
+  const response=await fetch(url,{method:'POST',headers:{'Content-Type':mime,'X-Jarvis-CSRF':token,'X-Jarvis-Voice-Approved':$('approval').checked?'yes':'no'},body});
+  if(embedded&&token!==csrf)throw Error('The local session has ended.');
   if(!response.ok) {
     const payload=await response.json();
     const error=new Error(payload.error||`Request failed: ${response.status}`);
     error.status=response.status;
+    if(embedded&&error.status===401)lockEmbedded(error.message);
     throw error;
   }
   return response;
@@ -275,7 +280,26 @@ $('inbox').onclick=async()=>{
   }catch(error){state('Error',error.message);}finally{$('inbox').disabled=false;}
 };
 document.addEventListener('keydown',event=>{if(event.key==='Escape')stop();if(event.code==='Space'&&event.target===document.body){event.preventDefault();$('mic').click();}});
-window.addEventListener('pagehide',stop);
+function lockEmbedded(message){
+  csrf=undefined;
+  stop();
+  $('approval').checked=false;
+  $('conversation').replaceChildren();
+  $('thread-empty').hidden=false;
+  $('cards').replaceChildren();
+  $('text').value='';
+  history=[];
+  delete document.body.dataset.paired;
+  $('pairing-message').textContent=message;
+}
+
+window.addEventListener('pagehide',()=>{
+  if(embedded&&csrf){
+    fetch('/api/embed/disconnect',{method:'POST',keepalive:true,
+      headers:{'Content-Type':'application/json','X-Jarvis-CSRF':csrf},body:'{}'}).catch(()=>{});
+    lockEmbedded('Pair this console again to continue.');
+  } else stop();
+});
 
 document.querySelectorAll('button[data-question]').forEach(button=>{
   button.onclick=()=>{
@@ -296,11 +320,68 @@ function updateClock(){
 updateClock();
 setInterval(updateClock,15000);
 
-fetch('/api/status').then(response=>response.json()).then(status=>{
+function showConsole(status){
   csrf=status.csrf;
   $('model').textContent=status.model.message;
   $('voice-mode').textContent=status.voice_configured?'ElevenLabs with Windows fallback':'ElevenLabs key required';
   $('email-mode').textContent=status.demo?'Disabled in demo mode':'Read-only · sign-in on request';
   $('inbox').disabled=status.demo;
   state('Idle',status.voice_configured?'Ready for text or voice.':'Text is ready. Set an ElevenLabs key to enable voice.');
-}).catch(error=>state('Error',`Server unavailable: ${error.message}`));
+  $('issue-code').disabled=false;
+  $('revoke-pairing').disabled=false;
+}
+
+function displayIssuedCode(code,message){
+  $('issued-code').value=code;
+  $('issued-code').hidden=!code;
+  $('issued-code-label').hidden=!code;
+  $('issued-code-message').textContent=message;
+  if(code){$('issued-code').focus();$('issued-code').select();}
+}
+
+if(embedded){
+  $('pairing-form').onsubmit=async event=>{
+    event.preventDefault();
+    $('pair-submit').disabled=true;
+    $('pairing-message').textContent='Pairing with the local server…';
+    try{
+      const response=await fetch('/api/embed/connect',{method:'POST',
+        headers:{'Content-Type':'application/json','X-Jarvis-Embedded':'yes'},
+        body:JSON.stringify({code:$('pairing-code').value.trim()})});
+      const result=await response.json();
+      if(!response.ok)throw Error(result.error||'Pairing failed.');
+      showConsole(result);
+      document.body.dataset.paired='';
+      $('pairing-message').textContent='';
+      $('text').focus();
+    }catch(error){
+      $('pairing-message').textContent=error.message;
+    }finally{
+      $('pairing-code').value='';
+      $('pair-submit').disabled=false;
+    }
+  };
+  $('embed-disconnect').onclick=async()=>{
+    try{
+      await api('/api/disconnect','{}');
+      lockEmbedded('Disconnected. Pair again to use the local console.');
+    }catch(error){
+      lockEmbedded(`Local controls closed. ${error.message}`);
+    }
+  };
+}else{
+  fetch('/api/status').then(response=>response.json()).then(showConsole)
+    .catch(error=>state('Error',`Server unavailable: ${error.message}`));
+  $('issue-code').onclick=async()=>{
+    try{
+      const result=await (await api('/api/embed-code','{}')).json();
+      displayIssuedCode(result.code,'Code selected. Copy it with Ctrl+C and paste it into the embedded local console.');
+    }catch(error){displayIssuedCode('',error.message);}
+  };
+  $('revoke-pairing').onclick=async()=>{
+    try{
+      await api('/api/embed-revoke','{}');
+      displayIssuedCode('','Hosted session and unused pairing code were revoked.');
+    }catch(error){displayIssuedCode('',error.message);}
+  };
+}

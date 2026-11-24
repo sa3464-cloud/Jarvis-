@@ -279,3 +279,28 @@ textarea { display: block; width: 100%; min-height: 72px; resize: vertical; padd
 @media (prefers-reduced-motion: reduce) {
   .hud *, .hud *::before { animation: none !important; transition: none !important; }
 }
+
+.pairing-gate, #embed-disconnect { display: none; }
+body[data-mode="embedded"] #pairing-tools, body[data-mode="embedded"] .sidebar { display: none; }
+body[data-mode="embedded"] .shell { grid-template-columns: minmax(0, 1fr); }
+body[data-mode="embedded"] #embed-disconnect { display: inline-block; margin-left: auto; }
+body[data-mode="embedded"]:not([data-paired]) .shell { display: none; }
+body[data-mode="embedded"]:not([data-paired]) .pairing-gate { display: block; }
+.pairing-gate { max-width: 640px; margin: 24px auto; }
+.pairing-gate > p, #issued-code-message { margin: 10px 0; color: var(--muted); }
+#pairing-form { display: grid; gap: 8px; margin-top: 16px; }
+#pairing-form button { justify-self: start; }
+#pairing-tools .actions { margin-block: 12px; }
+#pairing-code, #issued-code {
+  max-width: 100%;
+  padding: 9px 12px;
+  border-radius: 4px;
+  border: 1px solid #315365;
+  background: #040d16;
+  color: inherit;
+  font: inherit;
+}
+#issued-code { display: block; width: min(100%, 26rem); margin-top: 5px; }
+@media (max-width: 660px) {
+  .pairing-gate { margin: 14px; }
+}

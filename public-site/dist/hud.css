@@ -50,3 +50,11 @@
 @keyframes hud-scan { 50% { translate: 0 202px; opacity: .52; } }
 @keyframes hud-turn { to { transform: rotate(1turn); } }
 @keyframes hud-energy { to { text-shadow: 0 0 20px #68eaf1; transform: scale(1.05); } }
+
+.mode-header { flex-wrap: wrap; gap: 10px; }
+#local-toggle { margin-left: auto; font-size: .9rem; }
+#local-mode { padding: clamp(14px, 2.5vw, 24px); }
+#local-status { margin-block: 6px 10px; font-size: 1rem; }
+.local-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.local-actions a { color: var(--accent); font-size: .94rem; }
+#local-frame { display: block; width: 100%; height: max(680px, 80vh); margin-top: 14px; border: 1px solid var(--line); border-radius: 6px; background: #040b13; }
