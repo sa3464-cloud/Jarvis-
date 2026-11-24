@@ -70,6 +70,17 @@ class WindowsMicrophoneTest(unittest.TestCase):
             self.assertEqual(voice.listen_locally(audio.getvalue(), approved=True), 'Test')
             self.assertEqual(recognize.call_args.args[1], samples)
 
+    def test_empty_recognition_retries_with_louder_pcm_and_silence(self):
+        samples = b'\x00\x04\x00\xfc' * 8
+        with patch.object(voice, '_windows_speech', side_effect=[b'', b'Try again']) as recognize:
+            self.assertEqual(voice.listen_locally(voice.pcm_wave(samples), approved=True), 'Try again')
+        first, retry = recognize.call_args_list
+        self.assertEqual(first.args[1], samples)
+        self.assertIn('SetInputToWaveStream', retry.args[0])
+        with wave.open(io.BytesIO(retry.args[1]), 'rb') as recording:
+            self.assertEqual(recording.readframes(16), b'\xe0\x2e\x20\xd1' * 8)
+            self.assertEqual(recording.readframes(25600), b'\0\0' * 25600)
+
     def test_fallback_rejects_invalid_audio_and_requires_approval(self):
         with patch.object(voice, '_windows_speech') as recognize:
             with self.assertRaises(ValueError):

@@ -1,4 +1,5 @@
 """Server-only voice providers. No third-party Python dependencies."""
+from array import array
 import io
 import json
 import os
@@ -224,6 +225,17 @@ try {
     return audio
 
 
+def _speech_retry_wav(samples):
+    """Make quiet speech louder and give the recognizer time to finish the phrase."""
+    pcm = array('h')
+    pcm.frombytes(samples)
+    peak = max(map(abs, pcm))
+    if 0 < peak < 12000:
+        gain = min(24, 12000 / peak)
+        pcm = array('h', (round(sample * gain) for sample in pcm))
+    return pcm_wave(pcm.tobytes() + b'\0\0' * 25600)
+
+
 def listen_locally(audio, *, approved=False):
     """Recognize a short 16 kHz mono WAV with the installed Windows recognizer."""
     if not approved:
@@ -263,7 +275,7 @@ try {
     $engine.EndSilenceTimeout = [timespan]::FromMilliseconds(1500)
     $engine.EndSilenceTimeoutAmbiguous = [timespan]::FromMilliseconds(1750)
     $result = $engine.Recognize([timespan]::FromSeconds(30))
-    if ($result -and $result.Confidence -ge 0.35) { [Console]::Write($result.Text) }
+    if ($result) { [Console]::Write($result.Text) }
 } finally {
     $engine.Dispose()
     $audio.Dispose()
@@ -278,15 +290,20 @@ try {
     unavailable = 'Windows could not process this recording. Try a short sentence, or type your question.'
     try:
         result = _windows_speech(script.replace('# INPUT_SETUP', raw_input), samples, unavailable, timeout=40)
+        transcript = result.decode('utf-8').strip()
+        if transcript:
+            return transcript
+        retry_audio = _speech_retry_wav(samples)
     except WindowsSpeechError as error:
         if error.reason in ('launch', 'missing_recognizer'):
             raise RuntimeError(_recognition_message(error)) from None
         # A fresh Windows engine can read the same validated data as a WAV file.
-        alternate = script.replace('# INPUT_SETUP', '$engine.SetInputToWaveStream($audio)')
-        try:
-            result = _windows_speech(alternate, pcm_wave(samples), unavailable, timeout=40)
-        except WindowsSpeechError as retry:
-            raise RuntimeError(_recognition_message(retry)) from None
+        retry_audio = pcm_wave(samples)
+    alternate = script.replace('# INPUT_SETUP', '$engine.SetInputToWaveStream($audio)')
+    try:
+        result = _windows_speech(alternate, retry_audio, unavailable, timeout=40)
+    except WindowsSpeechError as retry:
+        raise RuntimeError(_recognition_message(retry)) from None
     return result.decode('utf-8').strip()
 
 

@@ -181,6 +181,9 @@ Type a question and click **Send** or press Enter (Shift+Enter adds a line).
 After a microphone turn, check the transcript in the message box. Edit it or
 choose **Record again** if needed. Click **Send transcript** or press Enter to
 get a spoken reply. Listening resumes after playback in the Command Center.
+Choose **Finish recording** to transcribe immediately without waiting for the
+automatic pause. If transcription returns no words, JARVIS listens for one
+more attempt. **Stop / mute** ends the voice session.
 The last 10 turns stay in page memory for follow-ups such as “why?” or “the second
 one.” Reloading the page or **New conversation** clears that context.
 

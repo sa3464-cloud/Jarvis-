@@ -97,11 +97,13 @@ class Console:
 
     def transcribe(self, audio):
         try:
-            return self.post('/api/listen', audio, approved=True)['text']
+            transcript = self.post('/api/listen', audio, approved=True)['text'].strip()
+            if transcript:
+                return transcript
         except ConsoleError as error:
             if error.code != 402:
                 raise
-            return self.post('/api/listen/local', audio, approved=True)['text']
+        return self.post('/api/listen/local', audio, approved=True)['text']
 
     def speech(self, text):
         return self.post('/api/speak', {'text': text, 'format': 'wav'}, approved=True)

@@ -8,6 +8,7 @@ const $ = id => document.getElementById(id);
 const embedded = document.body.dataset.mode === 'embedded';
 const hostedOrigin = 'https://seth-jarvis-command-center.sa3464.chatgpt.site';
 let csrf, enabled = false, stream, context, captureNode, captureTimeout, speech, speechURL;
+let finishCapture;
 let busy = false, generation = 0;
 let reviewing = false;
 let history = [];
@@ -111,6 +112,7 @@ async function ask(question) {
 }
 function deaf() {
   clearTimeout(captureTimeout); captureTimeout=null;
+  finishCapture=null;
   if(captureNode){captureNode.port.close();captureNode=null;}
   if(stream) stream.getTracks().forEach(track=>track.stop()); stream=null;
   if(context) context.close().catch(()=>{}); context=null;
@@ -213,7 +215,7 @@ async function speechWav(chunks, startFrame, endFrame, inputRate) {
   }
   return buffer;
 }
-async function record() {
+async function record(retrying = false) {
   approved(); if(busy)return;
   if(!navigator.mediaDevices?.getUserMedia||!window.AudioWorkletNode) throw Error('This browser cannot record audio. Try a current Chrome, Edge, Firefox, or Safari.');
   const captureTicket=generation;
@@ -239,39 +241,51 @@ async function record() {
   const maxFrames=framesFor(MAX_TURN_MS);
   let capturedFrames=0;
   let speechStart=null;
+  let signalSeen=false;
   let candidateStart=null, voicedFrames=0, lastVoiceFrame=0, noiseFloor=.003;
 
-  const finishRecording=async()=>{
+  const finishRecording=async(manual=false)=>{
     if(captureTicket!==generation)return;
-    if(speechStart===null){
+    if(speechStart===null&&(!manual||!signalSeen||capturedFrames<framesFor(180))){
       stop();
       state('Idle','No speech detected. Start the microphone and try again.');
       return;
     }
     const ticket=++generation;
     deaf();busy=true;state('Thinking','Transcribing your recording…');$('caption').textContent='Waiting for ElevenLabs transcript…';
+    $('mic').textContent='Transcribing…';
     try {
-      const start=Math.max(0,speechStart-framesFor(PRE_ROLL_MS));
-      const end=Math.min(capturedFrames,lastVoiceFrame+framesFor(TAIL_MS));
+      const start=manual?0:Math.max(0,speechStart-framesFor(PRE_ROLL_MS));
+      const end=manual?capturedFrames:Math.min(capturedFrames,lastVoiceFrame+framesFor(TAIL_MS));
       const audio=await speechWav(chunks,start,end,sampleRate);
       if(ticket!==generation)return;
-      let response, local=false;
+      let transcript, local=false;
+      let quotaLimited=false;
       try {
-        response=await api('/api/listen',audio,'audio/wav');
+        const response=await api('/api/listen',audio,'audio/wav');
+        transcript=(await response.json()).text.trim();
       } catch(error) {
         if(error.status!==402)throw error;
+        quotaLimited=true;
+      }
+      if(!transcript){
         if(ticket!==generation)return;
         local=true;
-        state('Thinking','ElevenLabs credits unavailable. Transcribing with Windows.');
+        state('Thinking',quotaLimited?'ElevenLabs credits unavailable. Trying Windows.':'No words returned. Trying Windows.');
         $('caption').textContent='Waiting for Windows transcript…';
-        response=await api('/api/listen/local',audio,'audio/wav');
+        const response=await api('/api/listen/local',audio,'audio/wav');
+        transcript=(await response.json()).text.trim();
       }
-      const result=await response.json();if(ticket!==generation)return;
+      if(ticket!==generation)return;
       busy=false;
-      const transcript=result.text.trim();
       if(!transcript){
+        if(!retrying&&enabled){
+          state('Thinking','Windows heard no words. Restarting the microphone…');
+          await record(true);
+          return;
+        }
         stop();
-        state('Idle','No clear speech was recognized. Try again or type your question.');
+        state('Idle','Windows heard no words. Check the Mic level in System status, then start the microphone again.');
         return;
       }
       reviewing=true;
@@ -292,9 +306,10 @@ async function record() {
     let sum=0, squares=0;
     for(const sample of chunk){sum+=sample;squares+=sample*sample;}
     const level=Math.sqrt(Math.max(0,squares/chunk.length-(sum/chunk.length)**2));
+    signalSeen||=level>=.0008;
     setHudMeter('mic',level*5);
     for(const [i,bar] of [...$('bars').children].entries())bar.style.height=`${3+Math.min(22,level*240)*(0.5+0.5*Math.sin(i))}px`;
-    if(level>Math.max(.009,noiseFloor*2.8)){
+    if(level>Math.max(.005,noiseFloor*2.8)){
       candidateStart??=chunkStart;
       voicedFrames+=chunk.length;
       lastVoiceFrame=capturedFrames;
@@ -316,11 +331,15 @@ async function record() {
   };
   captureContext.createMediaStreamSource(captured).connect(node);
   node.connect(captureContext.destination);
+  finishCapture=finishRecording;
   captureTimeout=setTimeout(finishRecording,MAX_TURN_MS+750);
-  state('Listening','Speak naturally. Pause when you’re finished.');
+  $('mic').textContent='Finish recording';
+  state('Listening',retrying?'Windows heard no words. Try speaking again.':'Speak naturally or click Finish recording when you’re done.');
   $('caption').textContent='Listening… you can review the transcript before sending.';
 }
 $('mic').onclick=async()=>{
+  if(finishCapture){await finishCapture(true);return;}
+  if(busy)return;
   if(enabled&&!busy&&!reviewing){stop();return;}
   // Starting voice is an explicit opt-in for this page session. The adjacent
   // notice explains credit use; do not require a separate checkbox first.
@@ -339,7 +358,7 @@ $('ask').onclick=()=>{
   if(reviewing){
     reviewing=false;
     $('ask').textContent='Send';
-    $('mic').textContent='Stop microphone';
+    $('mic').textContent='Start microphone';
     $('caption').textContent='Microphone off while JARVIS answers.';
     $('text').value='';
   }else stop();
