@@ -72,7 +72,18 @@ def _request(path, body, content_type, accept):
         raise RuntimeError('ElevenLabs unavailable. Check your connection and try again.') from None
 
 
-def speak(text, *, approved=False):
+def pcm_wave(pcm, sample_rate=16000):
+    """Wrap signed 16-bit mono PCM in a WAV container."""
+    if not pcm or len(pcm) % 2:
+        raise ValueError('Invalid PCM audio.')
+    output = io.BytesIO()
+    with wave.open(output, 'wb') as recording:
+        recording.setparams((1, 2, sample_rate, 0, 'NONE', 'not compressed'))
+        recording.writeframes(pcm)
+    return output.getvalue()
+
+
+def speak(text, *, approved=False, wav=False):
     if not approved:
         raise PermissionError('Approve ElevenLabs credit use before generating speech.')
     if not isinstance(text, str) or not text.strip() or len(text) > MAX_TEXT:
@@ -81,8 +92,11 @@ def speak(text, *, approved=False):
     # Eldrin — Crisp British Baritone, a male British English voice.
     voice = config.get('ELEVENLABS_VOICE_ID', '6WwXjDDEMyNmFG95zycZ')
     body = json.dumps({'text': text, 'model_id': config.get('ELEVENLABS_TTS_MODEL', 'eleven_multilingual_v2')}).encode()
-    return _request('/v1/text-to-speech/' + quote(voice, safe='') + '?output_format=mp3_44100_128',
-                    body, 'application/json', 'audio/mpeg')
+    audio_format = 'pcm_16000' if wav else 'mp3_44100_128'
+    accept = 'audio/pcm' if wav else 'audio/mpeg'
+    audio = _request('/v1/text-to-speech/' + quote(voice, safe='') + '?output_format=' + audio_format,
+                     body, 'application/json', accept)
+    return pcm_wave(audio) if wav else audio
 
 
 def _windows_speech(script, input_bytes, failure_message, timeout):

@@ -72,6 +72,26 @@ Do not commit your OAuth JSON or grant broader permissions to work around an err
 Protocol references: [Google desktop OAuth](https://developers.google.com/identity/protocols/oauth2/native-app)
 and [Gmail scopes](https://developers.google.com/workspace/gmail/api/auth/scopes).
 
+## Floating desktop core (Windows)
+
+Double-click `JARVIS.pyw` at the repository root, or run
+`python -B -m jarvis.agent.desktop` with the local Command Center server running.
+The launcher starts the local server if it is stopped. Ollama is still required
+for general conversation. The overlay does not launch automatically at Windows
+sign-in.
+
+- Drag the core to move across your desktop. Select **Panel** to open chat and
+  inbox controls, and **Dismiss** to retract it.
+- Select **Minimize** for the compact orb and tap it to restore. Use **Hide** or
+  **Ctrl+Alt+J** to hide/show JARVIS. **Exit** is in the panel.
+- Check **Enable voice**, then tap the core to talk. Silence sends the turn, and
+  tapping again finishes it early. Escape stops microphone or reply audio.
+  Audio stays in memory. Requests use your existing ElevenLabs configuration and
+  the Windows fallback when credits are unavailable.
+- The waveform and speaking ring follow Windows' real playback position.
+  Browser and Gmail tasks show activity and move the core aside. Gmail remains
+  read-only and may open your browser for Google authentication.
+
 ## Local Command Center
 
 JARVIS replies using **Eldrin — Crisp British Baritone**, a male British voice.
