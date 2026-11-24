@@ -84,9 +84,24 @@ async function say(text) {
     const localVoice=response.headers.get('Content-Type')==='audio/wav';
     const blob=await response.blob();
     if(ticket!==generation)return;
-    speechURL=URL.createObjectURL(blob);speech=new Audio(speechURL);
-    state('Speaking',localVoice?'ElevenLabs credits unavailable. Using the built-in Windows voice.':'Microphone is off while JARVIS speaks.');
-    await new Promise((resolve,reject)=>{speech.onended=resolve;speech.onerror=()=>reject(Error('Audio playback failed.'));speech.play().catch(reject);});
+    speechURL=URL.createObjectURL(blob);
+    const playback=new Audio(speechURL);
+    speech=playback;
+    await new Promise((resolve,reject)=>{
+      playback.onplaying=()=>{
+        if(ticket!==generation)return;
+        state('Speaking',localVoice?'ElevenLabs credits unavailable. Using the built-in Windows voice.':'Microphone is off while JARVIS speaks.');
+      };
+      playback.onwaiting=()=>{
+        if(ticket===generation)state('Thinking','Waiting for audio playback…');
+      };
+      playback.onpause=()=>{
+        if(ticket===generation&&!playback.ended)state('Idle','Playback paused.');
+      };
+      playback.onended=resolve;
+      playback.onerror=()=>reject(Error('Audio playback failed.'));
+      playback.play().catch(reject);
+    });
     if(ticket!==generation)return;
     URL.revokeObjectURL(speechURL);speechURL=null;speech=null;busy=false;
     state('Idle',localVoice?'Spoken with the built-in Windows voice.':'Speech finished.');if(enabled) await record();
