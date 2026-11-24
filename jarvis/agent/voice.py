@@ -154,11 +154,13 @@ def _fish_speech(config, text, wav):
     return audio
 
 
-def speak(text, *, approved=False, wav=False):
+def speak(text, *, approved=False, wav=False, local=False):
     if not approved:
         raise PermissionError('Enable voice for this session before generating speech.')
     if not isinstance(text, str) or not text.strip() or len(text) > MAX_TEXT:
         raise ValueError(f'Speech text must contain 1–{MAX_TEXT} characters.')
+    if local:
+        return speak_locally(text)
     config = settings()
     provider = _output_provider(config)
     if provider == 'fish_audio':

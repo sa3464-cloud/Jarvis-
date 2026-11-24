@@ -21,6 +21,7 @@ from .desktop_hud import (TRANSPARENT, PANEL, INK, MUTED, WIDTH, HEIGHT, CORE_Y,
 
 TITLE = 'JARVIS Floating Core'
 SHORTCUT = 'Ctrl+Alt+J'
+CONFIRMATION_SECONDS = 45
 TASKS = {
     'read_inbox': ('Reading unread Gmail', 'Complete Google sign-in if your browser opens.'),
     'open_website': ('Opening website', 'Handing the link to your default browser.'),
@@ -54,7 +55,7 @@ class Console:
         try:
             with self.opener.open(Request(self.origin + path, data=body, headers=headers),
                                   timeout=5 if body is None else 250) as response:
-                if path == '/api/speak':
+                if path in ('/api/speak', '/api/speak/local'):
                     if response.headers.get_content_type() != 'audio/wav':
                         raise ConsoleError(415, 'Restart the local Command Center to enable desktop audio.')
                     payload = response.read(21 * 1024 * 1024)
@@ -112,8 +113,9 @@ class Console:
                 self.cloud_recognition = False
         return self.post('/api/listen/local', audio, approved=True)['text']
 
-    def speech(self, text):
-        return self.post('/api/speak', {'text': text, 'format': 'wav'}, approved=True)
+    def speech(self, text, *, confirmation=False):
+        path = '/api/speak/local' if confirmation else '/api/speak'
+        return self.post(path, {'text': text, 'format': 'wav'}, approved=True)
 
 
 class MonitorInfo(ct.Structure):
@@ -155,6 +157,7 @@ class Desktop:
         self.api = screen_api()
         self.events = Queue()
         self.history = []
+        self.pending_voice = None
         self.job = 0
         self.status = 'idle'
         self.panel = Spring(0, 0)
@@ -250,7 +253,7 @@ class Desktop:
             tk.Button(controls, text=label, command=action, bg='#124258', fg=INK,
                       activebackground='#1b556a', activeforeground=INK,
                       relief='flat', padx=9).pack(side='right', padx=(5, 0))
-        tk.Label(panel, text='Mic: ElevenLabs or Windows. Replies use the configured voice. Say “stop listening” to stop.',
+        tk.Label(panel, text='After the readback, say yes or no. Say “stop listening” to stop.',
                  bg=PANEL, fg=MUTED, anchor='w', justify='left', wraplength=PANEL_W - 30,
                  font=('Segoe UI', 8)).pack(fill='x', pady=(4, 0))
         return panel
@@ -341,6 +344,7 @@ class Desktop:
 
     def stop_voice(self):
         self.job += 1
+        self.pending_voice = None
         self.voice_enabled.set(False)
         if self.mic:
             self.mic.close()
@@ -386,7 +390,8 @@ class Desktop:
         self.speech_start = None
         self.last_voice_byte = self.candidate_start = self.voiced_bytes = 0
         self.noise_floor = .003
-        self.change_state('listening', 'Hands-free listening')
+        label = 'Say yes or no' if self.pending_voice else 'Hands-free listening'
+        self.change_state('listening', label)
 
     def read_microphone(self, now):
         pcm = self.mic.read()
@@ -399,7 +404,8 @@ class Desktop:
                     self.candidate_start = chunk_start
                 self.last_sound, self.last_voice_byte = now, len(self.samples)
                 self.voiced_bytes += min(len(pcm), MIC_RATE * 2 // 25)
-                if self.speech_start is None and self.voiced_bytes >= MIC_RATE * 2 * .16:
+                minimum = .08 if self.pending_voice else .16
+                if self.speech_start is None and self.voiced_bytes >= MIC_RATE * 2 * minimum:
                     self.speech_start = self.candidate_start
             else:
                 self.noise_floor += .06 * (self.energy - self.noise_floor)
@@ -441,6 +447,7 @@ class Desktop:
         question = question.strip()
         if not question:
             return
+        self.pending_voice = None
         try:
             action, _ = tools.intent(question)
         except ValueError as error:
@@ -480,13 +487,49 @@ class Desktop:
     def completed(self):
         self.waveform, self.energy, self.progress = (), 0.0, 0.0
         self.complete_until = time.monotonic() + .85
-        self.change_state('complete', 'Reply ready')
+        self.change_state('complete', 'Say yes or no' if self.pending_voice else 'Reply ready')
 
     def failed(self, message):
         self.stop_voice()
         self.change_state('error')
         self.expand()
         self.display(message)
+
+    def hear(self, transcript):
+        self.change_state('idle')
+        text = transcript.strip()
+        words = ' '.join(re.findall(r'[^\W_]+', text.lower()))
+        if re.fullmatch(r'(?:(?:hey )?jarvis )?(?:stop listening|mute (?:the )?microphone)', words):
+            self.stop_voice()
+            self.display('Microphone stopped by voice command.')
+            return
+        if not self.voice_enabled.get() or self.hidden:
+            return
+        pending = self.pending_voice
+        if not words:
+            self.pending_voice = None
+            self.display('I couldn’t confirm that. Repeat your question.' if pending else 'I didn’t catch that. Try again.')
+        elif pending and words in ('yes', 'yes jarvis'):
+            self.pending_voice = None
+            question, expires = pending
+            if time.monotonic() <= expires:
+                self.submit(question)
+                return
+            self.display('That confirmation expired. Repeat your question.')
+        elif pending and words in ('no', 'no jarvis', 'cancel', 'cancel that'):
+            self.pending_voice = None
+            self.display('Discarded. Go ahead with your question.')
+        elif len(text) > 3800:
+            self.pending_voice = None
+            self.display('That recording was too long. Try a shorter question.')
+        else:
+            self.pending_voice = (text, time.monotonic() + CONFIRMATION_SECONDS)
+            self.change_state('thinking', 'Preparing readback')
+            self.display(f'I heard “{text}”\n\nSay yes to send, no to discard, or repeat the question.')
+            prompt = f'I heard: {text}. Say yes to send it, or no to try again.'
+            self.run('audio', lambda: self.console.speech(prompt, confirmation=True))
+            return
+        self.start_listening()
 
     def process_events(self):
         while True:
@@ -503,17 +546,7 @@ class Desktop:
             elif kind == 'failed':
                 self.failed(result)
             elif kind == 'transcript':
-                self.change_state('idle')
-                transcript = result.strip()
-                if re.fullmatch(r'(?:(?:hey\s+)?jarvis[,.!\s]+)?(?:stop listening|mute (?:the )?microphone)[.!?]*',
-                                transcript, re.I):
-                    self.stop_voice()
-                    self.display('Microphone stopped by voice command.')
-                elif any(character.isalnum() for character in transcript):
-                    self.submit(transcript)
-                elif self.voice_enabled.get() and not self.hidden:
-                    self.display('I didn’t catch that. Go ahead and say it again.')
-                    self.start_listening()
+                self.hear(result)
             elif kind == 'answer':
                 text = result['answer']
                 if not result.get('model_missing'):
@@ -530,7 +563,7 @@ class Desktop:
                     self.playback = self.playback_factory(result)
                     self.change_state('speaking')
                 except (RuntimeError, OSError, ValueError, wave.Error) as error:
-                    self.change_state('error', f'Audio unavailable · {error}')
+                    self.failed(f'Audio unavailable · {error}')
             elif kind == 'audio':
                 self.completed()
 
@@ -548,6 +581,8 @@ class Desktop:
                 if self.playback.done:
                     self.playback.close()
                     self.playback = None
+                    if self.pending_voice:
+                        self.pending_voice = (self.pending_voice[0], now + CONFIRMATION_SECONDS)
                     self.completed()
                 else:
                     self.progress, self.waveform, self.energy = self.playback.snapshot()

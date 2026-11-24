@@ -64,6 +64,22 @@ class LocalEmbeddingTest(unittest.TestCase):
                 self.assertIsNone(headers.get('Access-Control-Allow-Origin'))
             execute.assert_not_called()
 
+    def test_readback_requires_approval_and_uses_only_windows(self):
+        body = {'text': 'I heard hello. Say yes to send it.'}
+        with (
+            patch.object(main.voice, 'speak_locally', return_value=b'fixture wav') as windows,
+            patch.object(main.voice, 'settings') as provider_settings,
+        ):
+            rejected = self.request('/api/speak/local', body=body, token=self.server.csrf)
+            self.assertEqual(rejected[0], 403)
+            windows.assert_not_called()
+            accepted = self.request('/api/speak/local', body=body, token=self.server.csrf,
+                                    **{'X-Jarvis-Voice-Approved': 'yes'})
+            self.assertEqual((accepted[0], accepted[1].get_content_type(), accepted[2]),
+                             (200, 'audio/wav', b'fixture wav'))
+            windows.assert_called_once_with(body['text'])
+            provider_settings.assert_not_called()
+
     def test_pairing_is_single_use_scoped_and_revocable(self):
         issued = self.request('/api/embed-code', body={}, token=self.server.csrf)
         code = json.loads(issued[2])['code']

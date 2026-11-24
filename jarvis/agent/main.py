@@ -13,7 +13,7 @@ from . import data, voice, conversation, tools
 UI = data.ROOT / 'ui'
 DASHBOARD_ASSETS = data.ROOT.parent / 'public-site' / 'dist'
 PUBLIC_ORIGIN = 'https://seth-jarvis-command-center.sa3464.chatgpt.site'
-EMBED_ACTIONS = {'chat', 'listen', 'listen/local', 'speak', 'inbox', 'disconnect'}
+EMBED_ACTIONS = {'chat', 'listen', 'listen/local', 'speak', 'speak/local', 'inbox', 'disconnect'}
 
 
 class Pairing:
@@ -199,6 +199,8 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(body)
             if path == '/api/chat':
                 return self.reply(200, tools.execute(payload.get('question'), payload.get('history', [])))
+            if path == '/api/speak/local':
+                return self.reply(200, voice.speak(payload.get('text'), approved=approved, local=True), 'audio/wav')
             if path == '/api/speak':
                 speech_text = payload.get('text')
                 wav = payload.get('format') == 'wav'
