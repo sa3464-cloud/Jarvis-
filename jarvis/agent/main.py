@@ -70,7 +70,13 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError('Incomplete request.')
             approved = self.headers.get('X-Jarvis-Voice-Approved') == 'yes'
             if self.path == '/api/listen':
-                return self.reply(200, {'text': voice.listen(body, self.headers.get('Content-Type', ''), approved=approved)})
+                try:
+                    text = voice.listen(body, self.headers.get('Content-Type', ''), approved=approved)
+                except voice.ElevenLabsQuotaError as error:
+                    return self.reply(402, {'error': str(error)})
+                return self.reply(200, {'text': text})
+            if self.path == '/api/listen/local':
+                return self.reply(200, {'text': voice.listen_locally(body, approved=approved)})
             payload = json.loads(body)
             if self.path == '/api/chat':
                 return self.reply(200, tools.execute(payload.get('question'), payload.get('history', [])))

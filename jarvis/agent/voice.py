@@ -1,9 +1,11 @@
 """Server-only ElevenLabs client. No third-party Python dependencies."""
+import io
 import json
 import os
 import re
 import secrets
 import subprocess
+import wave
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
@@ -15,7 +17,7 @@ MAX_TEXT = 4000
 
 
 class ElevenLabsQuotaError(RuntimeError):
-    """ElevenLabs cannot generate speech with the available credits."""
+    """ElevenLabs cannot process the voice request with the available credits."""
 
 
 def settings():
@@ -83,19 +85,35 @@ def speak(text, *, approved=False):
                     body, 'application/json', 'audio/mpeg')
 
 
-def speak_locally(text):
-    """Render a WAV with the installed Windows voice, entirely in memory."""
-    unavailable = 'ElevenLabs credits are unavailable, and the built-in Windows voice could not generate audio.'
+def _windows_speech(script, input_bytes, failure_message, timeout):
     if os.name != 'nt':
-        raise RuntimeError('ElevenLabs credits are unavailable. The built-in voice fallback requires Windows.')
+        raise RuntimeError('ElevenLabs credits are unavailable. The built-in speech fallback requires Windows.')
 
     powershell = Path(os.environ.get('SystemRoot', r'C:\Windows'))
     powershell /= 'System32/WindowsPowerShell/v1.0/powershell.exe'
-    # Pass text on stdin as UTF-8. The command itself never contains user text.
-    script = """
+    setup = '''
 $ErrorActionPreference = 'Stop'
-[Console]::InputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -AssemblyName System.Speech
+'''
+    try:
+        result = subprocess.run(
+            [str(powershell), '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', setup + script],
+            input=input_bytes, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            timeout=timeout, creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        raise RuntimeError(failure_message) from None
+    if result.returncode:
+        raise RuntimeError(failure_message)
+    return result.stdout
+
+
+def speak_locally(text):
+    """Render a WAV with the installed Windows voice, entirely in memory."""
+    unavailable = 'ElevenLabs credits are unavailable, and the built-in Windows voice could not generate audio.'
+    # User text is passed on stdin, separate from the PowerShell command.
+    script = '''
+[Console]::InputEncoding = [System.Text.Encoding]::UTF8
 $voice = New-Object System.Speech.Synthesis.SpeechSynthesizer
 $audio = New-Object System.IO.MemoryStream
 try {
@@ -107,18 +125,54 @@ try {
     $voice.Dispose()
     $audio.Dispose()
 }
-"""
-    try:
-        result = subprocess.run(
-            [str(powershell), '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script],
-            input=text.encode('utf-8', errors='replace'), stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL, timeout=20, creationflags=subprocess.CREATE_NO_WINDOW,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        raise RuntimeError(unavailable) from None
-    if result.returncode or result.stdout[:4] != b'RIFF' or result.stdout[8:12] != b'WAVE':
+'''
+    audio = _windows_speech(script, text.encode('utf-8', errors='replace'), unavailable, timeout=20)
+    if audio[:4] != b'RIFF' or audio[8:12] != b'WAVE':
         raise RuntimeError(unavailable)
-    return result.stdout
+    return audio
+
+
+def listen_locally(audio, *, approved=False):
+    """Recognize a short 16 kHz mono WAV with the installed Windows recognizer."""
+    if not approved:
+        raise PermissionError('Enable voice for this session before transcribing audio.')
+    invalid = 'Local transcription requires mono, 16-bit, 16 kHz WAV audio up to 31 seconds long.'
+    try:
+        with wave.open(io.BytesIO(audio), 'rb') as recording:
+            frames = recording.getnframes()
+            if (recording.getnchannels(), recording.getsampwidth(), recording.getframerate()) != (1, 2, 16000):
+                raise ValueError(invalid)
+            if not 0 < frames <= 31 * 16000:
+                raise ValueError(invalid)
+            samples = recording.readframes(frames)
+    except (wave.Error, EOFError):
+        raise ValueError(invalid) from None
+    if len(samples) != frames * 2:
+        raise ValueError(invalid)
+
+    script = '''
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$engine = [System.Speech.Recognition.SpeechRecognitionEngine]::new()
+$audio = [System.IO.MemoryStream]::new()
+try {
+    [Console]::OpenStandardInput().CopyTo($audio)
+    $audio.Position = 0
+    $format = [System.Speech.AudioFormat.SpeechAudioFormatInfo]::new(
+        16000, [System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen,
+        [System.Speech.AudioFormat.AudioChannel]::Mono)
+    $engine.SetInputToAudioStream($audio, $format)
+    $engine.LoadGrammar([System.Speech.Recognition.DictationGrammar]::new())
+    $engine.EndSilenceTimeout = [timespan]::FromMilliseconds(850)
+    $engine.EndSilenceTimeoutAmbiguous = [timespan]::FromMilliseconds(900)
+    $result = $engine.Recognize([timespan]::FromSeconds(30))
+    if ($result) { [Console]::Write($result.Text) }
+} finally {
+    $engine.Dispose()
+    $audio.Dispose()
+}
+'''
+    unavailable = 'ElevenLabs credits are unavailable, and Windows could not transcribe the microphone recording.'
+    return _windows_speech(script, samples, unavailable, timeout=40).decode('utf-8').strip()
 
 
 def listen(audio, mime='audio/webm', *, approved=False):

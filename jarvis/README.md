@@ -78,7 +78,9 @@ Change `ELEVENLABS_VOICE_ID` in `jarvis/.env` to choose another voice. This sett
 applies to ElevenLabs replies, including conversation and email summaries.
 If ElevenLabs speech credits run out, the Windows console reads replies using
 the built-in Windows voice until ElevenLabs accepts speech requests again.
-Microphone transcription still uses ElevenLabs.
+If ElevenLabs transcription credits run out, the Windows console retries the
+microphone recording with the installed Windows speech recognizer. Local
+recognition uses the Windows speech language and may be less accurate.
 
 From the repository root:
 
@@ -109,8 +111,9 @@ user account; POSIX installations should use `chmod 600 jarvis/.env`.
   sender/subject summaries. It does not read full message bodies. Those names and
   subjects are sent to ElevenLabs only for the requested readout.
 
-The endpoints are `/api/speak` (JSON text → MP3 or Windows fallback WAV) and `/api/listen` (recording bytes
-→ JSON transcript), protected by same-origin and per-process request tokens.
+The endpoints are `/api/speak` (JSON text → MP3 or Windows fallback WAV),
+`/api/listen` (recording → JSON transcript), and `/api/listen/local`
+(WAV → Windows transcript). All require same-origin and per-process request tokens.
 Only the Python server holds the ElevenLabs key. Audio and mail are not saved.
 Local model conversation is available through Ollama (see below).
 

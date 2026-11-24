@@ -1,6 +1,7 @@
 import io
 import json
 import unittest
+import wave
 from unittest.mock import patch
 from urllib.error import HTTPError
 
@@ -29,3 +30,24 @@ class SpeechErrorsTest(unittest.TestCase):
             self.assertRaisesRegex(RuntimeError, 'rejected the key'),
         ):
             voice.speak('Test', approved=True)
+
+
+class WindowsMicrophoneTest(unittest.TestCase):
+    def test_fallback_transcribes_only_the_audio_samples(self):
+        samples = b'\x01\x00' * 16
+        audio = io.BytesIO()
+        with wave.open(audio, 'wb') as recording:
+            recording.setparams((1, 2, 16000, 0, 'NONE', 'not compressed'))
+            recording.writeframes(samples)
+
+        with patch.object(voice, '_windows_speech', return_value=b'Test') as recognize:
+            self.assertEqual(voice.listen_locally(audio.getvalue(), approved=True), 'Test')
+            self.assertEqual(recognize.call_args.args[1], samples)
+
+    def test_fallback_rejects_invalid_audio_and_requires_approval(self):
+        with patch.object(voice, '_windows_speech') as recognize:
+            with self.assertRaises(ValueError):
+                voice.listen_locally(b'not a recording', approved=True)
+            with self.assertRaises(PermissionError):
+                voice.listen_locally(b'not a recording')
+            recognize.assert_not_called()

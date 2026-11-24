@@ -10,7 +10,12 @@ function state(name, message) { $('state').textContent=name; $('reactor').datase
 function approved() { if(!$('approval').checked) throw Error('Approve ElevenLabs credit use before using voice.'); }
 async function api(path, body, mime='application/json') {
   const response=await fetch(path,{method:'POST',headers:{'Content-Type':mime,'X-Jarvis-CSRF':csrf,'X-Jarvis-Voice-Approved':$('approval').checked?'yes':'no'},body});
-  if(!response.ok) { const error=await response.json(); throw Error(error.error||`Request failed: ${response.status}`); }
+  if(!response.ok) {
+    const payload=await response.json();
+    const error=new Error(payload.error||`Request failed: ${response.status}`);
+    error.status=response.status;
+    throw error;
+  }
   return response;
 }
 function addTurn(role, text) {
@@ -83,6 +88,39 @@ async function say(text) {
     state('Idle',localVoice?'Spoken with the built-in Windows voice.':'Speech finished.');if(enabled) await record();
   } catch(error) {if(ticket===generation){busy=false;enabled=false;state('Error',error.message);}}
 }
+async function localSpeechWav(recording) {
+  const sampleRate=16000;
+  const decoded=await new OfflineAudioContext(1,1,sampleRate).decodeAudioData(await recording.arrayBuffer());
+  const frames=Math.min(decoded.length,30*sampleRate);
+  const monoContext=new OfflineAudioContext(1,frames,sampleRate);
+  const source=monoContext.createBufferSource();
+  source.buffer=decoded;
+  source.connect(monoContext.destination);
+  source.start();
+  const mono=await monoContext.startRendering();
+  const pcm=mono.getChannelData(0);
+  const buffer=new ArrayBuffer(44+frames*2);
+  const view=new DataView(buffer);
+  const bytes=new Uint8Array(buffer);
+  const encoder=new TextEncoder();
+  bytes.set(encoder.encode('RIFF'),0);
+  view.setUint32(4,buffer.byteLength-8,true);
+  bytes.set(encoder.encode('WAVEfmt '),8);
+  view.setUint32(16,16,true);
+  view.setUint16(20,1,true);
+  view.setUint16(22,1,true);
+  view.setUint32(24,sampleRate,true);
+  view.setUint32(28,sampleRate*2,true);
+  view.setUint16(32,2,true);
+  view.setUint16(34,16,true);
+  bytes.set(encoder.encode('data'),36);
+  view.setUint32(40,frames*2,true);
+  for(let i=0;i<frames;i++){
+    const sample=Math.max(-1,Math.min(1,pcm[i]));
+    view.setInt16(44+i*2,sample*(sample<0?32768:32767),true);
+  }
+  return buffer;
+}
 async function record() {
   approved(); if(busy)return;
   if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder) throw Error('This browser cannot record audio. Try a current Chrome, Edge, Firefox, or Safari.');
@@ -101,8 +139,22 @@ async function record() {
     const type=recorder.mimeType;const audio=new Blob(chunks,{type});const ticket=++generation;
     deaf();busy=true;state('Thinking','Transcribing your recording…');$('caption').textContent='Waiting for ElevenLabs transcript…';
     try {
-      const result=await (await api('/api/listen',audio,type)).json();if(ticket!==generation)return;
-      $('text').value=result.text;$('caption').textContent=result.text||'No speech detected.';
+      let response, local=false;
+      try {
+        response=await api('/api/listen',audio,type);
+      } catch(error) {
+        if(error.status!==402)throw error;
+        if(ticket!==generation)return;
+        local=true;
+        state('Thinking','ElevenLabs credits unavailable. Transcribing with Windows.');
+        $('caption').textContent='Waiting for Windows transcript…';
+        const wav=await localSpeechWav(audio);
+        if(ticket!==generation)return;
+        response=await api('/api/listen/local',wav,'audio/wav');
+      }
+      const result=await response.json();if(ticket!==generation)return;
+      $('text').value=result.text;
+      $('caption').textContent=result.text ? (local ? `Windows transcript: ${result.text}` : result.text) : 'No speech detected.';
       busy=false;
       if(result.text.trim())await ask(result.text);
       else{state('Idle','No speech detected.');if(enabled)await record();}
