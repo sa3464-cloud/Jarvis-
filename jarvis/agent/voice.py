@@ -1,4 +1,4 @@
-"""Server-only ElevenLabs client. No third-party Python dependencies."""
+"""Server-only voice providers. No third-party Python dependencies."""
 import io
 import json
 import os
@@ -9,15 +9,26 @@ import wave
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 MAX_AUDIO = 12 * 1024 * 1024
 MAX_TEXT = 4000
+MAX_OUTPUT = 20 * 1024 * 1024
+FISH_TTS_MODEL = 's2.1-pro-free'
 
 
-class ElevenLabsQuotaError(RuntimeError):
+class SpeechFallback(RuntimeError):
+    """Use the installed Windows voice if cloud speech is unavailable."""
+
+
+class ElevenLabsQuotaError(SpeechFallback):
     """ElevenLabs cannot process the voice request with the available credits."""
+
+
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 class WindowsSpeechError(RuntimeError):
@@ -41,6 +52,21 @@ def configured():
     return bool(settings().get('ELEVENLABS_API_KEY'))
 
 
+def _output_provider(config):
+    return config.get('JARVIS_TTS_PROVIDER', 'elevenlabs').strip().lower() or 'elevenlabs'
+
+
+def output_status():
+    config = settings()
+    provider = _output_provider(config)
+    if provider == 'fish_audio':
+        ready = bool(config.get('FISH_API_KEY') and config.get('FISH_AUDIO_REFERENCE_ID'))
+    else:
+        ready = provider == 'elevenlabs' and bool(config.get('ELEVENLABS_API_KEY'))
+    return {'tts_provider': provider if provider in ('fish_audio', 'elevenlabs') else 'unavailable',
+            'tts_configured': ready}
+
+
 def _request(path, body, content_type, accept):
     key = settings().get('ELEVENLABS_API_KEY')
     if not key:
@@ -50,8 +76,8 @@ def _request(path, body, content_type, accept):
     }, method='POST')
     try:
         with urlopen(request, timeout=60) as response:
-            result = response.read(20 * 1024 * 1024 + 1)
-            if len(result) > 20 * 1024 * 1024:
+            result = response.read(MAX_OUTPUT + 1)
+            if len(result) > MAX_OUTPUT:
                 raise RuntimeError('ElevenLabs response exceeded the size limit.')
             return result
     except HTTPError as error:
@@ -89,12 +115,55 @@ def pcm_wave(pcm, sample_rate=16000):
     return output.getvalue()
 
 
+def _fish_speech(config, text, wav):
+    key = config.get('FISH_API_KEY')
+    reference_id = config.get('FISH_AUDIO_REFERENCE_ID')
+    if not key:
+        raise SpeechFallback('Fish Audio key missing. Set FISH_API_KEY in jarvis/.env.')
+    if not reference_id:
+        raise SpeechFallback('Fish Audio voice missing. Set FISH_AUDIO_REFERENCE_ID in jarvis/.env.')
+    body = {'text': text, 'reference_id': reference_id, 'format': 'pcm' if wav else 'mp3'}
+    if wav:
+        body['sample_rate'] = 16000
+    request = Request('https://api.fish.audio/v1/tts', data=json.dumps(body).encode(),
+                      headers={'Authorization': f'Bearer {key}', 'Content-Type': 'application/json',
+                               'model': FISH_TTS_MODEL}, method='POST')
+    try:
+        with build_opener(NoRedirect()).open(request, timeout=60) as response:
+            audio = response.read(MAX_OUTPUT + 1)
+            mime = response.headers.get_content_type()
+    except HTTPError as error:
+        error.close()
+        messages = {
+            401: 'Fish Audio rejected the API key.',
+            402: 'Fish Audio speech credit is unavailable.',
+            403: 'Fish Audio denied access to this voice or model.',
+            404: 'Fish Audio could not find the configured voice.',
+            429: 'Fish Audio reached its rate limit.',
+        }
+        raise SpeechFallback(messages.get(error.code, f'Fish Audio returned HTTP {error.code}.')) from None
+    except (URLError, TimeoutError, OSError, ValueError):
+        raise SpeechFallback('Fish Audio could not complete the speech request.') from None
+    if not audio or len(audio) > MAX_OUTPUT or not (mime.startswith('audio/') or mime == 'application/octet-stream'):
+        raise SpeechFallback('Fish Audio did not return usable audio.')
+    if wav:
+        if len(audio) % 2:
+            raise SpeechFallback('Fish Audio returned incomplete PCM audio.')
+        return pcm_wave(audio)
+    return audio
+
+
 def speak(text, *, approved=False, wav=False):
     if not approved:
-        raise PermissionError('Approve ElevenLabs credit use before generating speech.')
+        raise PermissionError('Enable voice for this session before generating speech.')
     if not isinstance(text, str) or not text.strip() or len(text) > MAX_TEXT:
         raise ValueError(f'Speech text must contain 1–{MAX_TEXT} characters.')
     config = settings()
+    provider = _output_provider(config)
+    if provider == 'fish_audio':
+        return _fish_speech(config, text, wav)
+    if provider != 'elevenlabs':
+        raise SpeechFallback('JARVIS_TTS_PROVIDER must be fish_audio or elevenlabs.')
     # Eldrin — Crisp British Baritone, a male British English voice.
     voice = config.get('ELEVENLABS_VOICE_ID', '6WwXjDDEMyNmFG95zycZ')
     body = json.dumps({'text': text, 'model_id': config.get('ELEVENLABS_TTS_MODEL', 'eleven_multilingual_v2')}).encode()
@@ -107,7 +176,7 @@ def speak(text, *, approved=False, wav=False):
 
 def _windows_speech(script, input_bytes, failure_message, timeout):
     if os.name != 'nt':
-        raise RuntimeError('ElevenLabs credits are unavailable. The built-in speech fallback requires Windows.')
+        raise RuntimeError('The built-in speech fallback requires Windows.')
 
     powershell = Path(os.environ.get('SystemRoot', r'C:\Windows'))
     powershell /= 'System32/WindowsPowerShell/v1.0/powershell.exe'
@@ -133,7 +202,7 @@ Add-Type -AssemblyName System.Speech
 
 def speak_locally(text):
     """Render a WAV with the installed Windows voice, entirely in memory."""
-    unavailable = 'ElevenLabs credits are unavailable, and the built-in Windows voice could not generate audio.'
+    unavailable = 'The built-in Windows voice could not generate audio.'
     # User text is passed on stdin, separate from the PowerShell command.
     script = '''
 [Console]::InputEncoding = [System.Text.Encoding]::UTF8

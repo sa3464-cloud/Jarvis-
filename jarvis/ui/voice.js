@@ -20,7 +20,7 @@ function state(name, message) {
   if(name==='Idle'||name==='Error')setHudMeter('playback',0);
   if(message)$('status').textContent=message;
 }
-function approved() { if(!$('approval').checked) throw Error('Approve ElevenLabs credit use before using voice.'); }
+function approved() { if(!$('approval').checked) throw Error('Enable voice for this session first.'); }
 async function api(path, body, mime='application/json') {
   const token=csrf;
   const url=embedded?path.replace('/api/','/api/embed/'):path;
@@ -101,6 +101,7 @@ async function say(text) {
   try {
     const response=await api('/api/speak',JSON.stringify({text}));
     const localVoice=response.headers.get('Content-Type')==='audio/wav';
+    const notice=response.headers.get('X-Jarvis-Voice-Notice');
     const blob=await response.blob();
     if(ticket!==generation)return;
     speechURL=URL.createObjectURL(blob);
@@ -109,7 +110,7 @@ async function say(text) {
     await new Promise((resolve,reject)=>{
       playback.onplaying=()=>{
         if(ticket!==generation)return;
-        state('Speaking',localVoice?'ElevenLabs credits unavailable. Using the built-in Windows voice.':'Microphone is off while JARVIS speaks.');
+        state('Speaking',localVoice?`${notice?notice+' ':''}Using the built-in Windows voice.`:'Microphone is off while JARVIS speaks.');
       };
       playback.onwaiting=()=>{
         if(ticket===generation)state('Thinking','Waiting for audio playback…');
@@ -323,7 +324,11 @@ setInterval(updateClock,15000);
 function showConsole(status){
   csrf=status.csrf;
   $('model').textContent=status.model.message;
-  $('voice-mode').textContent=status.voice_configured?'ElevenLabs with Windows fallback':'ElevenLabs key required';
+  const provider=status.tts_provider==='fish_audio'?'Fish Audio':'ElevenLabs';
+  const speechConfigured=status.tts_configured??status.voice_configured;
+  $('voice-mode').textContent=speechConfigured?`${provider} speech · Windows fallback`:`Windows speech · ${provider} setup needed`;
+  $('voice-note').textContent=`Starting the microphone enables voice for this session. ElevenLabs processes microphone recordings. Reply text goes to ${provider} when available. Windows speech is the fallback.`;
+  $('gmail-voice-note').textContent=`Sign in with your NJIT account when prompted. JARVIS leaves messages unread. When voice is enabled, sender names and subjects may go to ${provider} for speech.`;
   $('email-mode').textContent=status.demo?'Disabled in demo mode':'Read-only · sign-in on request';
   $('inbox').disabled=status.demo;
   state('Idle',status.voice_configured?'Ready for text or voice.':'Text is ready. Set an ElevenLabs key to enable voice.');

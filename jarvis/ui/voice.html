@@ -81,7 +81,7 @@
             <div><dt>Gmail</dt><dd id="email-mode">Checking availability…</dd></div>
           </dl>
           <label class="voice-option"><input id="approval" type="checkbox" aria-describedby="voice-note"> Enable spoken replies for this session</label>
-          <p id="voice-note">Starting the microphone enables voice for this session. ElevenLabs processes audio and spoken replies and may use credits. Windows speech takes over when credits run out.</p>
+          <p id="voice-note">Starting the microphone enables voice for this session. Voice requests may use provider credits. Windows speech is available as a fallback.</p>
         </section>
       </div>
 
@@ -113,7 +113,7 @@
           <h2 id="connections-title">Gmail inbox</h2>
           <button id="inbox" type="button" class="quiet">Read unread email</button>
         </div>
-        <p>Sign in with your NJIT account when prompted. JARVIS leaves messages unread. If voice is enabled, speech may send sender names and subjects to ElevenLabs.</p>
+        <p id="gmail-voice-note">Sign in with your NJIT account when prompted. JARVIS leaves messages unread. When voice is enabled, sender names and subjects may go to the speech provider.</p>
         <div id="cards" aria-live="polite"></div>
       </section>
       <section class="panel connections" id="pairing-tools" aria-labelledby="pairing-tools-title">

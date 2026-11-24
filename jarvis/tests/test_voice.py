@@ -2,7 +2,7 @@ import io
 import json
 import unittest
 import wave
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError
 
 from jarvis.agent import voice
@@ -77,3 +77,54 @@ class WindowsMicrophoneTest(unittest.TestCase):
             with self.assertRaises(PermissionError):
                 voice.listen_locally(b'not a recording')
             recognize.assert_not_called()
+
+
+class FishAudioTest(unittest.TestCase):
+    config = {'JARVIS_TTS_PROVIDER': 'fish_audio', 'FISH_AUDIO_REFERENCE_ID': 'fixture-voice',
+              'FISH_API_KEY': 'fish-test-only', 'ELEVENLABS_API_KEY': 'eleven-test-only'}
+
+    def test_fish_receives_configured_reference_and_uses_free_model(self):
+        response = MagicMock()
+        response.headers.get_content_type.return_value = 'audio/mpeg'
+        response.read.return_value = b'fixture audio'
+        with patch.object(voice, 'settings', return_value=self.config):
+            with patch.object(voice, 'build_opener') as opener:
+                opener.return_value.open.return_value.__enter__.return_value = response
+                self.assertEqual(voice.speak('Test reply', approved=True), b'fixture audio')
+                request = opener.return_value.open.call_args.args[0]
+        self.assertEqual(request.full_url, 'https://api.fish.audio/v1/tts')
+        self.assertEqual(request.get_header('Authorization'), 'Bearer fish-test-only')
+        self.assertEqual(request.get_header('Model'), 's2.1-pro-free')
+        self.assertEqual(json.loads(request.data),
+                         {'text': 'Test reply', 'reference_id': 'fixture-voice', 'format': 'mp3'})
+
+    def test_fish_pcm_is_wrapped_as_wav_for_desktop(self):
+        pcm = b'\x01\x00' * 20
+        response = MagicMock()
+        response.headers.get_content_type.return_value = 'application/octet-stream'
+        response.read.return_value = pcm
+        with patch.object(voice, 'settings', return_value=self.config):
+            with patch.object(voice, 'build_opener') as opener:
+                opener.return_value.open.return_value.__enter__.return_value = response
+                result = voice.speak('Test reply', approved=True, wav=True)
+                request = opener.return_value.open.call_args.args[0]
+        self.assertEqual(json.loads(request.data)['sample_rate'], 16000)
+        self.assertEqual(json.loads(request.data)['format'], 'pcm')
+        with wave.open(io.BytesIO(result)) as audio:
+            self.assertEqual(audio.getframerate(), 16000)
+            self.assertEqual(audio.readframes(audio.getnframes()), pcm)
+
+    def test_missing_fish_key_falls_back_without_provider_requests(self):
+        with patch.object(voice, 'settings', return_value={**self.config, 'FISH_API_KEY': ''}):
+            with patch.object(voice, 'build_opener') as opener:
+                with self.assertRaisesRegex(voice.SpeechFallback, 'Fish Audio key missing'):
+                    voice.speak('Test reply', approved=True)
+                opener.assert_not_called()
+            self.assertEqual(voice.output_status(), {'tts_provider': 'fish_audio', 'tts_configured': False})
+
+    def test_fish_does_not_send_text_before_voice_approval(self):
+        with patch.object(voice, 'settings', return_value=self.config):
+            with patch.object(voice, 'build_opener') as opener:
+                with self.assertRaises(PermissionError):
+                    voice.speak('Test reply')
+                opener.assert_not_called()

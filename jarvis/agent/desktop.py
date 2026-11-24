@@ -236,8 +236,9 @@ class Desktop:
             tk.Button(controls, text=label, command=action, bg='#124258', fg=INK,
                       activebackground='#1b556a', activeforeground=INK,
                       relief='flat', padx=9).pack(side='right', padx=(5, 0))
-        tk.Label(panel, text='Voice may use ElevenLabs credits. Windows fallback is available.',
-                 bg=PANEL, fg=MUTED, anchor='w', font=('Segoe UI', 8)).pack(fill='x', pady=(4, 0))
+        tk.Label(panel, text='Mic: ElevenLabs. Reply text: configured voice provider (Fish Audio or ElevenLabs).',
+                 bg=PANEL, fg=MUTED, anchor='w', justify='left', wraplength=PANEL_W - 30,
+                 font=('Segoe UI', 8)).pack(fill='x', pady=(4, 0))
         return panel
 
     def display(self, text):

@@ -1,6 +1,6 @@
 # JARVIS
 
-Local read-only graph index, Gmail reader, and ElevenLabs voice console.
+Local read-only graph index, Gmail reader, and voice console.
 Python 3.10+ standard library; no packages to install.
 
 From this directory:
@@ -86,8 +86,8 @@ sign-in.
   **Ctrl+Alt+J** to hide/show JARVIS. **Exit** is in the panel.
 - Check **Enable voice**, then tap the core to talk. Silence sends the turn, and
   tapping again finishes it early. Escape stops microphone or reply audio.
-  Audio stays in memory. Requests use your existing ElevenLabs configuration and
-  the Windows fallback when credits are unavailable.
+  Audio stays in memory. ElevenLabs transcribes the microphone. Reply text goes
+  to the configured speech provider, with Windows speech as a fallback.
 - The waveform and speaking ring follow Windows' real playback position.
   Browser and Gmail tasks show activity and move the core aside. Gmail remains
   read-only and may open your browser for Google authentication.
@@ -105,11 +105,14 @@ console's **Disconnect hosted session** button also revokes access. The hosted
 page can check availability, but browser isolation keeps local chat, audio,
 Gmail, and the pairing code inside the local frame.
 
-JARVIS replies using **Eldrin — Crisp British Baritone**, a male British voice.
-Change `ELEVENLABS_VOICE_ID` in `jarvis/.env` to choose another voice. This setting
-applies to ElevenLabs replies, including conversation and email summaries.
-If ElevenLabs speech credits run out, the Windows console reads replies using
-the built-in Windows voice until ElevenLabs accepts speech requests again.
+JARVIS can speak with ElevenLabs or Fish Audio. For Fish Audio, set
+`JARVIS_TTS_PROVIDER=fish_audio`, your Fish Audio secret `FISH_API_KEY`, and
+`FISH_AUDIO_REFERENCE_ID` (the ID of your Fish Audio voice) in `jarvis/.env`.
+JARVIS sends the reference ID to Fish Audio's free `s2.1-pro-free` engine.
+To use ElevenLabs for replies, set `JARVIS_TTS_PROVIDER=elevenlabs` and select
+`ELEVENLABS_VOICE_ID`. The installed Windows voice can read replies when
+the cloud provider is unavailable. Fish Audio setup does not change microphone
+transcription.
 If ElevenLabs transcription credits run out, the Windows console retries the
 microphone recording with the installed Windows speech recognizer. Local
 recognition uses the Windows speech language and may be less accurate.
@@ -128,10 +131,10 @@ the browser. For a fresh installation, copy `.env.example` to `.env` and set
 the key into browser code or commit it. Windows file permissions follow your
 user account; POSIX installations should use `chmod 600 jarvis/.env`.
 
-- Click **Start microphone** to enable voice and approve ElevenLabs credit use
+- Click **Start microphone** to enable voice and approve voice provider use
   for the current page session. No separate checkbox step is needed. Uncheck
   **Voice enabled for this session** to revoke that approval and stop the mic.
-- **Speak text** sends up to 4,000 characters to ElevenLabs and plays MP3 audio.
+- **Speak text** sends up to 4,000 characters to the selected speech provider.
 - **Start microphone** records WAV audio. Actual microphone levels
   drive the bars; 900 ms of silence after speech ends the turn. Transcripts appear
   after each turn, not as real-time partial words. Continuous listening resumes
@@ -141,12 +144,12 @@ user account; POSIX installations should use `chmod 600 jarvis/.env`.
 - **Read unread email** starts Google authorization, fetches up to five unread
   messages, and displays sender, subject, and date. With voice approved it speaks
   sender/subject summaries. It does not read full message bodies. Those names and
-  subjects are sent to ElevenLabs only for the requested readout.
+  subjects go to the speech provider for the requested readout.
 
 The endpoints are `/api/speak` (JSON text → MP3 or Windows fallback WAV),
 `/api/listen` (recording → JSON transcript), and `/api/listen/local`
 (WAV → Windows transcript). All require same-origin and per-process request tokens.
-Only the Python server holds the ElevenLabs key. Audio and mail are not saved.
+Only the Python server reads the voice API keys. Audio and mail are not saved.
 Local model conversation is available through Ollama (see below).
 
 ElevenLabs consumes account credits for generated speech and transcribed audio;
@@ -156,8 +159,9 @@ enabling voice. Default models are `eleven_multilingual_v2` and requested
 `scribe_v1`; override the STT setting if your account no longer supports that model.
 Failures are shown on screen, without exposing provider response bodies or keys.
 
-References: [speech generation](https://elevenlabs.io/docs/api-reference/text-to-speech/convert)
-and [transcription](https://elevenlabs.io/docs/api-reference/speech-to-text/convert).
+References: [Fish Audio setup](https://docs.fish.audio/developer-guide/getting-started/api-key),
+[ElevenLabs speech generation](https://elevenlabs.io/docs/api-reference/text-to-speech/convert),
+and [ElevenLabs transcription](https://elevenlabs.io/docs/api-reference/speech-to-text/convert).
 
 ## Local questions and conversation
 
@@ -173,14 +177,14 @@ during verification. CPU inference was responsive. Remove that setting to retry
 automatic GPU selection later.
 
 Type a question and click **Ask JARVIS** or press Enter (Shift+Enter adds a line).
-With microphone and ElevenLabs credit use enabled, each recorded turn is
+With microphone and voice enabled, each recorded turn is
 transcribed, answered locally, then spoken. Listening resumes after playback.
 The last 10 turns stay in page memory for follow-ups such as “why?” or “the second
 one.” Reloading the page or **New conversation** clears that context.
 
-Voice credit approval is optional for typed chat. When enabled, questions' audio
-goes to ElevenLabs for transcription, and generated reply text goes there for
-speech. Model prompts, profile, and recent conversation are sent only to the
+Voice approval is optional for typed chat. When enabled, questions' audio goes
+to ElevenLabs for transcription, and generated reply text goes to the selected
+speech provider. Model prompts, profile, and recent conversation are sent only to the
 loopback Ollama service. There is no live web search; current facts need external
 verification. Answers can be wrong, especially with a small local model.
 
@@ -212,9 +216,9 @@ transcripts:
 Only the direct user utterance is routed. Retrieved notes, emails, conversation
 history, and generated model replies cannot execute actions. No shell command
 execution is implemented. These actions are desktop features; the public static
-site does not connect to your computer, microphone, Gmail, or ElevenLabs.
+site connects to your computer only through the paired local frame.
 
-Speech still requires the **secret ElevenLabs API key**, not its identifier.
-Replace `ELEVENLABS_API_KEY` in your gitignored `jarvis/.env` with that secret;
-an API key ID cannot be converted to a secret by the app. Keep it out of chat and
+ElevenLabs microphone transcription requires the **secret ElevenLabs API key**.
+Fish Audio speech requires a separate **Fish Audio API key** in `FISH_API_KEY`.
+Save provider secrets in your gitignored `jarvis/.env`. Keep them out of chat and
 Git. Typed commands work even when speech credentials are unavailable.

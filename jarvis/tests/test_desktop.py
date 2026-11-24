@@ -37,7 +37,10 @@ class DesktopAudioTest(unittest.TestCase):
 
     def test_requested_pcm_is_wrapped_for_native_playback(self):
         pcm = b'\x01\x00\x02\x00'
-        with patch.object(voice, '_request', return_value=pcm) as provider:
+        with (
+            patch.object(voice, 'settings', return_value={'JARVIS_TTS_PROVIDER': 'elevenlabs'}),
+            patch.object(voice, '_request', return_value=pcm) as provider,
+        ):
             wav = voice.speak('A short reply.', approved=True, wav=True)
         self.assertIn('output_format=pcm_16000', provider.call_args.args[0])
         with wave.open(io.BytesIO(wav), 'rb') as recording:

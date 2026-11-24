@@ -77,7 +77,7 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-    def reply(self, code, body, mime='application/json'):
+    def reply(self, code, body, mime='application/json', *, speech_notice=None):
         if not isinstance(body, bytes):
             body = json.dumps(body).encode()
         self.send_response(code)
@@ -85,6 +85,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Length', str(len(body)))
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
+        if speech_notice:
+            self.send_header('X-Jarvis-Voice-Notice', speech_notice)
         path = urlparse(self.path).path
         ancestors = PUBLIC_ORIGIN if code == 200 and path == '/embedded' else "'none'"
         self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; "
@@ -112,7 +114,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def console_status(self, token):
         return {'voice_configured': voice.configured(), 'csrf': token, 'demo': data.status()['demo'],
-                'model': conversation.status()}
+                'model': conversation.status(), **voice.output_status()}
 
     def do_GET(self):
         if not self.local_host():
@@ -194,8 +196,8 @@ class Handler(BaseHTTPRequestHandler):
                 wav = payload.get('format') == 'wav'
                 try:
                     audio = voice.speak(speech_text, approved=approved, wav=wav)
-                except voice.ElevenLabsQuotaError:
-                    return self.reply(200, voice.speak_locally(speech_text), 'audio/wav')
+                except voice.SpeechFallback as error:
+                    return self.reply(200, voice.speak_locally(speech_text), 'audio/wav', speech_notice=str(error))
                 return self.reply(200, audio, 'audio/wav' if wav else 'audio/mpeg')
             if path == '/api/inbox':
                 result = tools.read_inbox()
@@ -218,7 +220,7 @@ def main():
     with LocalServer(('127.0.0.1', args.port), Handler) as server:
         server.csrf = secrets.token_urlsafe(32)
         print(f'JARVIS voice console: http://127.0.0.1:{server.server_port}', flush=True)
-        print('Voice requests consume ElevenLabs credits only after approval in the page.', flush=True)
+        print('Voice requests are made only after approval in the app.', flush=True)
         server.serve_forever()
 
 
