@@ -51,7 +51,7 @@ def model_name():
 def status():
     model = model_name()
     try:
-        models = _local('/api/tags', timeout=2).get('models', [])
+        models = _local('/api/tags', timeout=4).get('models', [])
         ready = any(item.get('name') == model for item in models)
         return {'available': ready, 'name': model, 'provider': 'Local Ollama',
                 'message': f'Local model ready: {model}' if ready else f'Model missing: run ollama pull {model}'}

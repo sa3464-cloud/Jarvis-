@@ -20,6 +20,12 @@ class ElevenLabsQuotaError(RuntimeError):
     """ElevenLabs cannot process the voice request with the available credits."""
 
 
+class WindowsSpeechError(RuntimeError):
+    def __init__(self, reason, message):
+        super().__init__(message)
+        self.reason = reason
+
+
 def settings():
     values = {}
     path = ROOT / '.env'
@@ -112,13 +118,16 @@ Add-Type -AssemblyName System.Speech
     try:
         result = subprocess.run(
             [str(powershell), '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', setup + script],
-            input=input_bytes, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            input=input_bytes, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             timeout=timeout, creationflags=subprocess.CREATE_NO_WINDOW,
         )
-    except (OSError, subprocess.TimeoutExpired):
-        raise RuntimeError(failure_message) from None
+    except subprocess.TimeoutExpired:
+        raise WindowsSpeechError('timeout', failure_message) from None
+    except OSError:
+        raise WindowsSpeechError('launch', failure_message) from None
     if result.returncode:
-        raise RuntimeError(failure_message)
+        reason = 'missing_recognizer' if b'JARVIS_NO_RECOGNIZER' in result.stderr else 'engine'
+        raise WindowsSpeechError(reason, failure_message)
     return result.stdout
 
 
@@ -166,15 +175,21 @@ def listen_locally(audio, *, approved=False):
 
     script = '''
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-$engine = [System.Speech.Recognition.SpeechRecognitionEngine]::new()
+try {
+    $engine = [System.Speech.Recognition.SpeechRecognitionEngine]::new()
+} catch {
+    $installed = [System.Speech.Recognition.SpeechRecognitionEngine]::InstalledRecognizers()
+    if ($installed.Count -eq 0) {
+        [Console]::Error.WriteLine('JARVIS_NO_RECOGNIZER')
+        exit 1
+    }
+    $engine = [System.Speech.Recognition.SpeechRecognitionEngine]::new($installed[0].Id)
+}
 $audio = [System.IO.MemoryStream]::new()
 try {
     [Console]::OpenStandardInput().CopyTo($audio)
     $audio.Position = 0
-    $format = [System.Speech.AudioFormat.SpeechAudioFormatInfo]::new(
-        16000, [System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen,
-        [System.Speech.AudioFormat.AudioChannel]::Mono)
-    $engine.SetInputToAudioStream($audio, $format)
+    # INPUT_SETUP
     $engine.LoadGrammar([System.Speech.Recognition.DictationGrammar]::new())
     $engine.EndSilenceTimeout = [timespan]::FromMilliseconds(850)
     $engine.EndSilenceTimeoutAmbiguous = [timespan]::FromMilliseconds(900)
@@ -185,8 +200,33 @@ try {
     $audio.Dispose()
 }
 '''
-    unavailable = 'ElevenLabs credits are unavailable, and Windows could not transcribe the microphone recording.'
-    return _windows_speech(script, samples, unavailable, timeout=40).decode('utf-8').strip()
+    raw_input = '''
+    $format = [System.Speech.AudioFormat.SpeechAudioFormatInfo]::new(
+        16000, [System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen,
+        [System.Speech.AudioFormat.AudioChannel]::Mono)
+    $engine.SetInputToAudioStream($audio, $format)
+'''
+    unavailable = 'Windows could not process this recording. Try a short sentence, or type your question.'
+    try:
+        result = _windows_speech(script.replace('# INPUT_SETUP', raw_input), samples, unavailable, timeout=40)
+    except WindowsSpeechError as error:
+        if error.reason in ('launch', 'missing_recognizer'):
+            raise RuntimeError(_recognition_message(error)) from None
+        # A fresh Windows engine can read the same validated data as a WAV file.
+        alternate = script.replace('# INPUT_SETUP', '$engine.SetInputToWaveStream($audio)')
+        try:
+            result = _windows_speech(alternate, pcm_wave(samples), unavailable, timeout=40)
+        except WindowsSpeechError as retry:
+            raise RuntimeError(_recognition_message(retry)) from None
+    return result.decode('utf-8').strip()
+
+
+def _recognition_message(error):
+    return {
+        'timeout': 'Windows transcription timed out. Try a shorter sentence, or type your question.',
+        'launch': 'JARVIS could not start Windows transcription. You can still type a question.',
+        'missing_recognizer': 'Windows has no offline speech recognizer installed. You can still type a question.',
+    }.get(error.reason, str(error))
 
 
 def listen(audio, mime='audio/webm', *, approved=False):
