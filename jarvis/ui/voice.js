@@ -20,10 +20,14 @@ async function api(path, body, mime='application/json') {
 }
 function addTurn(role, text) {
   const card=document.createElement('article');const label=document.createElement('strong');
+  card.className=role;
   label.textContent=role==='user'?'You':'JARVIS';const paragraph=document.createElement('p');
-  paragraph.textContent=text;paragraph.style.whiteSpace='pre-wrap';card.append(label,paragraph);
-  $('conversation').appendChild(card);
-  while($('conversation').children.length>20)$('conversation').firstChild.remove();
+  paragraph.textContent=text;card.append(label,paragraph);
+  $('thread-empty').hidden=true;
+  const conversation=$('conversation');
+  conversation.appendChild(card);
+  while(conversation.children.length>20)conversation.firstChild.remove();
+  conversation.scrollTop=conversation.scrollHeight;
 }
 function showInbox(card) {
   $('cards').replaceChildren();
@@ -216,7 +220,14 @@ $('mic').onclick=async()=>{
 $('stop').onclick=stop;
 $('ask').onclick=()=>{stop();ask($('text').value).catch(error=>state('Error',error.message));};
 $('text').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();$('ask').click();}});
-$('clear').onclick=()=>{stop();history=[];$('conversation').replaceChildren();$('text').value='';state('Idle','New conversation.');};
+$('clear').onclick=()=>{
+  stop();
+  history=[];
+  $('conversation').replaceChildren();
+  $('thread-empty').hidden=false;
+  $('text').value='';
+  state('Idle','New conversation.');
+};
 $('speak').onclick=()=>say($('text').value).catch(error=>state('Error',error.message));
 $('approval').onchange=()=>{if(!$('approval').checked)stop();};
 $('inbox').onclick=async()=>{
@@ -230,4 +241,31 @@ $('inbox').onclick=async()=>{
 };
 document.addEventListener('keydown',event=>{if(event.key==='Escape')stop();if(event.code==='Space'&&event.target===document.body){event.preventDefault();$('mic').click();}});
 window.addEventListener('pagehide',stop);
-fetch('/api/status').then(response=>response.json()).then(status=>{csrf=status.csrf;$('model').textContent=status.model.message;state('Idle',status.voice_configured?`Voice key configured. ${status.demo?'Demo mode: real email disabled.':'Real email enabled.'}`:'ElevenLabs key missing.');}).catch(error=>state('Error',`Server unavailable: ${error.message}`));
+
+document.querySelectorAll('button[data-question]').forEach(button=>{
+  button.onclick=()=>{
+    $('text').value=button.dataset.question;
+    $('text').focus();
+  };
+});
+
+const easternTime=new Intl.DateTimeFormat(undefined,{
+  month:'short',day:'numeric',hour:'numeric',minute:'2-digit',
+  timeZone:'America/New_York',timeZoneName:'short',
+});
+function updateClock(){
+  const now=new Date();
+  $('clock').dateTime=now.toISOString();
+  $('clock').textContent=easternTime.format(now);
+}
+updateClock();
+setInterval(updateClock,15000);
+
+fetch('/api/status').then(response=>response.json()).then(status=>{
+  csrf=status.csrf;
+  $('model').textContent=status.model.message;
+  $('voice-mode').textContent=status.voice_configured?'ElevenLabs with Windows fallback':'ElevenLabs key required';
+  $('email-mode').textContent=status.demo?'Disabled in demo mode':'Read-only · sign-in on request';
+  $('inbox').disabled=status.demo;
+  state('Idle',status.voice_configured?'Ready for text or voice.':'Text is ready. Set an ElevenLabs key to enable voice.');
+}).catch(error=>state('Error',`Server unavailable: ${error.message}`));

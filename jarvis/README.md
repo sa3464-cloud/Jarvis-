@@ -31,7 +31,8 @@ Wikilinks create undirected edges; unresolved and ambiguous links are reported.
 Source folders are never modified. The fixture generator writes only to data/demo.
 
 The full canvas graph UI and permanent memory tools remain to be built.
-The voice console is a separate working surface for speech and inbox summaries.
+The local Command Center brings speech, text conversation, and inbox summaries
+into one interface.
 
 ## Email connection
 
@@ -71,7 +72,7 @@ Do not commit your OAuth JSON or grant broader permissions to work around an err
 Protocol references: [Google desktop OAuth](https://developers.google.com/identity/protocols/oauth2/native-app)
 and [Gmail scopes](https://developers.google.com/workspace/gmail/api/auth/scopes).
 
-## Voice console
+## Local Command Center
 
 JARVIS replies using **Eldrin — Crisp British Baritone**, a male British voice.
 Change `ELEVENLABS_VOICE_ID` in `jarvis/.env` to choose another voice. This setting

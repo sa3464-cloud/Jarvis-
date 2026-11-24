@@ -1,7 +1,96 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>JARVIS · Voice</title><link rel="stylesheet" href="/voice.css"></head>
-<body><main><header><span>J A R V I S</span><small>SETH / VOICE CONSOLE</small></header><section class="core"><div id="reactor" data-state="idle">J</div><h1 id="state">Idle</h1><p id="status" role="status">Connecting to local server…</p><div id="bars" aria-label="Microphone level"></div></section>
-<section><p class="muted">Starting the microphone enables ElevenLabs voice for this session and uses your account credits. Recorded audio and spoken replies are sent to ElevenLabs.</p><label><input id="approval" type="checkbox"> Voice enabled for this session (ElevenLabs credits). Uncheck to disable. Email readout sends sender names and subjects.</label><p id="model" class="muted">Checking local conversation model…</p><p class="muted">Questions are answered locally. No live web search.</p></section>
-<section><label for="text">Ask JARVIS</label><textarea id="text" maxlength="4000" placeholder="Ask a question, or press the microphone and talk…"></textarea><p id="caption" aria-live="polite">Microphone off</p><div class="actions"><button id="ask">Ask JARVIS</button><button id="mic">Start microphone</button><button id="speak">Speak text</button><button id="stop">Stop / mute</button><button id="inbox">Read unread email</button><button id="clear">New conversation</button></div></section>
-<section><h2>Conversation</h2><p class="muted">Try “Read my unread emails”, “Plan my day”, “Open YouTube”, or ask a general question. Google sign-in may be required for email. Website commands open on this computer.</p><div id="conversation" aria-live="polite"></div></section>
-<section><h2>Inbox details</h2><p class="muted">Google sign-in opens when requested. Reading leaves messages unread. Up to five sender/subject summaries are spoken.</p><div id="cards"></div></section></main><script src="/voice.js"></script></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JARVIS · Command Center</title>
+  <link rel="stylesheet" href="/voice.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="/">
+        <span class="brand-mark" aria-hidden="true">◉</span>
+        <span>J A R V I S <small>COMMAND CENTER</small></span>
+      </a>
+      <nav aria-label="Command Center">
+        <a href="#console">Voice console</a>
+        <a href="#chat">Conversation</a>
+        <a href="#connections">Connections</a>
+      </nav>
+      <p class="sidebar-note">Runs on this computer.</p>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <span class="badge"><span class="dot" aria-hidden="true"></span> LOCAL CONSOLE</span>
+        <time id="clock" aria-label="Eastern time"></time>
+      </header>
+
+      <div class="overview" id="console">
+        <section class="panel core" aria-labelledby="voice-title">
+          <h1 id="voice-title">Voice console</h1>
+          <div id="reactor" class="orb" data-state="idle" aria-hidden="true">
+            <span class="orbit"></span><span class="orbit orbit-secondary"></span>
+            <strong>J A R V I S <small>AI CORE</small></strong>
+          </div>
+          <div class="voice-indicators">
+            <span id="state" class="badge">Idle</span>
+            <div id="bars" aria-hidden="true"></div>
+          </div>
+          <p id="status" role="status">Connecting to local server…</p>
+          <div class="actions core-actions">
+            <button id="mic" type="button" aria-describedby="voice-note">Start microphone</button>
+            <button id="stop" type="button" class="quiet">Stop / mute</button>
+          </div>
+          <p id="caption" class="caption" aria-live="polite">Microphone off</p>
+        </section>
+
+        <section class="panel system" aria-labelledby="system-title">
+          <h2 id="system-title">System status</h2>
+          <dl class="specs">
+            <div><dt>AI model</dt><dd id="model">Checking local model…</dd></div>
+            <div><dt>Voice</dt><dd id="voice-mode">Checking configuration…</dd></div>
+            <div><dt>Gmail</dt><dd id="email-mode">Checking availability…</dd></div>
+          </dl>
+          <label class="voice-option"><input id="approval" type="checkbox" aria-describedby="voice-note"> Enable spoken replies for this session</label>
+          <p id="voice-note">Starting the microphone enables voice for this session. ElevenLabs processes audio and spoken replies and may use credits. Windows speech takes over when credits run out.</p>
+        </section>
+      </div>
+
+      <section class="panel chat" id="chat" aria-labelledby="chat-title">
+        <div class="panel-heading">
+          <h2 id="chat-title">Conversation</h2>
+          <button id="clear" type="button" class="quiet">New conversation</button>
+        </div>
+        <p id="thread-empty" class="empty">Type a question below or start the microphone to talk.</p>
+        <div id="conversation" role="log" aria-live="polite" aria-label="Conversation messages"></div>
+        <label class="question-label" for="text">Your question</label>
+        <textarea id="text" maxlength="4000" rows="2" placeholder="What would you like help with?"></textarea>
+        <div class="send-row">
+          <span class="keyboard-hint">Enter to send · Shift + Enter for a new line</span>
+          <div class="actions">
+            <button id="speak" type="button" class="quiet">Speak text</button>
+            <button id="ask" type="button">Ask JARVIS</button>
+          </div>
+        </div>
+        <div class="prompts" aria-label="Suggested questions">
+          <button type="button" class="quiet" data-question="Explain a complex idea in simple terms.">Explain an idea</button>
+          <button type="button" class="quiet" data-question="Plan my day">Plan my day</button>
+          <button type="button" class="quiet" data-question="Quiz me on Physics 1, one question at a time.">Practice Physics 1</button>
+        </div>
+      </section>
+
+      <section class="panel connections" id="connections" aria-labelledby="connections-title">
+        <div class="panel-heading">
+          <h2 id="connections-title">Gmail inbox</h2>
+          <button id="inbox" type="button" class="quiet">Read unread email</button>
+        </div>
+        <p>Sign in with your NJIT account when prompted. JARVIS leaves messages unread. If voice is enabled, speech may send sender names and subjects to ElevenLabs.</p>
+        <div id="cards" aria-live="polite"></div>
+      </section>
+    </main>
+  </div>
+  <script src="/voice.js"></script>
+</body>
+</html>

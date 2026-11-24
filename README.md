@@ -1,6 +1,8 @@
 # JARVIS
 
-Local assistant for Seth. See [setup and current capabilities](jarvis/README.md).
+Local assistant for Seth. Open the [local Command Center](http://127.0.0.1:8767)
+for voice, text conversation, and read-only Gmail in one interface. See
+[setup and current capabilities](jarvis/README.md).
 
 Public console: **https://seth-jarvis-command-center.sa3464.chatgpt.site**
 
