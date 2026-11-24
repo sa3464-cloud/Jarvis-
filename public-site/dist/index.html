@@ -1,17 +1,98 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="JARVIS Command Center with browser AI and a Windows desktop companion."><title>JARVIS · Command Center</title><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="hud.css"></head>
-<body><div class="shell"><aside><a class="brand" href="./"><span class="mark">◉</span><span>J A R V I S<small>COMMAND CENTER</small></span></a><nav><a href="#console" class="active">◈ &nbsp; Command center</a><a href="#conversation">◎ &nbsp; Conversations</a><a href="#connections">⌘ &nbsp; Connections</a></nav><div class="privacy"><span class="dot"></span> LOCAL INFERENCE<p>Your conversation stays in this browser. No shared inbox. No cloud model key.</p></div></aside>
-<main id="console"><header class="mode-header"><span class="badge"><span class="dot"></span> COMMAND CENTER</span><button type="button" id="local-toggle" class="quiet" aria-pressed="false">Use local PC</button><span id="clock"></span></header>
-<section id="local-mode" class="panel" hidden aria-labelledby="local-mode-title">
-  <h1 id="local-mode-title">JARVIS on this PC</h1>
-  <p id="local-status" role="status">Start JARVIS on this PC and connect to its local server.</p>
-  <div class="local-actions">
-    <a href="http://127.0.0.1:8767/#pairing-tools" target="_blank" rel="noopener noreferrer">Get a pairing code</a>
-    <button type="button" id="local-retry" class="quiet" hidden>Retry connection</button>
-  </div>
-  <iframe id="local-frame" title="Local JARVIS Command Center" allow="microphone; autoplay" hidden></iframe>
-</section>
-<div id="browser-mode"><div class="overview"><section class="panel core" id="ai-core" data-engine="standby"><div class="orb-stage" aria-hidden="true"><span class="hud-floor"></span><span class="hud-scan"></span><div class="orb"><span class="hud-scale"></span><span class="hud-sweep"></span><div class="ring"></div><div class="ring second"></div><strong>J A R V I S<small>AI CORE</small></strong></div></div><h1>JARVIS Command Center</h1><p>Ask questions and work through ideas with AI running in your browser.</p><div id="engine-state" class="badge">ENGINE STANDBY</div></section>
-<section class="panel engine"><div class="eyebrow">SYSTEM STATUS</div><h2>Start your local AI</h2><p>The public console runs a compact model on your device using WebGPU. Loading it downloads model files that may exceed 1 GB and uses device storage and memory.</p><button id="load">Load browser AI <span>↗</span></button><progress id="progress" value="0" max="1" hidden></progress><p id="status" role="status">No model files download until you click Load.</p><div class="spec"><span>MODEL HOST</span><strong>Your browser</strong></div><div class="spec"><span>CHAT HISTORY</span><strong>This session only</strong></div><div class="spec"><span>LIVE WEB SEARCH</span><strong>Not connected</strong></div></section></div>
-<section class="panel chat" id="conversation"><div class="chat-head"><div><div class="eyebrow">CONVERSATION</div><h2>Talk it through.</h2></div><button class="quiet" id="clear">New conversation</button></div><div id="messages" aria-live="polite"><div class="empty" id="welcome">A clear starting point.<small>Load the browser AI, then ask anything you want to explore.</small></div></div><form id="ask-form"><label class="sr" for="question">Your question</label><textarea id="question" maxlength="4000" rows="2" placeholder="What’s on your mind?"></textarea><div class="send-row"><small>Enter to send · Shift + Enter for a new line</small><div><button class="quiet" type="button" id="stop" hidden>Stop</button><button id="send" disabled>Ask JARVIS ↗</button></div></div></form><div class="prompts"><button data-question="Explain a complex idea in simple terms.">Explain an idea</button><button data-question="Help me plan a focused day. Ask me about my priorities first.">Plan my day</button><button data-question="Help me improve a piece of writing. Ask me to paste it first.">Improve my writing</button></div><p class="disclaimer">AI can make mistakes. Verify important answers and current information.</p></section>
-<section class="connections" id="connections"><div class="panel"><h2>Voice and Gmail on Windows</h2><p>Pair with JARVIS on this PC to use microphone input, spoken replies, and read-only Gmail from this page.</p><button type="button" id="local-connect">Use local PC</button><small>Requires the JARVIS server to be running on this PC.</small></div><div class="panel"><h2>Floating desktop core</h2><p>Launch the Windows overlay to drag the core around your desktop, expand its panels, and talk to JARVIS. Press Ctrl+Alt+J to show or hide it.</p><a href="https://github.com/sa3464-cloud/Jarvis-#readme">Get JARVIS for Windows</a></div></section></div></main></div><script type="module" src="app.js"></script></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="JARVIS Command Center with browser AI and a Windows desktop companion.">
+  <title>JARVIS · Command Center</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./">J.A.R.V.I.S. <span class="badge" id="connection-state">Browser</span></a>
+    <time id="clock" aria-label="Eastern time"><span id="clock-time"></span><span id="clock-date"></span></time>
+    <div class="top-actions"><button type="button" id="local-toggle" class="quiet" aria-pressed="false">Use local PC</button><a class="icon-button" href="#connections" id="settings-link" aria-label="Connections" title="Connections">⚙</a></div>
+  </header>
+  <main id="console">
+    <section id="local-mode" hidden aria-labelledby="local-mode-title">
+      <header class="local-banner panel">
+        <h1 id="local-mode-title">JARVIS on this PC</h1>
+        <p id="local-status" role="status">Start JARVIS on this PC and connect to its local server.</p>
+        <div class="actions">
+          <a href="http://127.0.0.1:8767/#pairing-tools" target="_blank" rel="noopener noreferrer">Get a pairing code</a>
+          <button type="button" id="local-retry" class="quiet" hidden>Retry connection</button>
+        </div>
+      </header>
+      <iframe id="local-frame" title="Local JARVIS Command Center" allow="microphone; camera; autoplay" hidden></iframe>
+    </section>
+    <div class="dashboard" id="browser-mode" data-dashboard data-thread="messages" data-input="question">
+      <aside class="instrument-rail" aria-label="Dashboard panels">
+        <section class="panel tile">
+          <h2><span class="section-icon" aria-hidden="true">◇</span> System status</h2>
+          <div class="tile-body">
+            <dl class="specs"><div><dt>AI model</dt><dd id="model-status">On demand</dd></div><div><dt>Voice and Gmail</dt><dd>Via local PC</dd></div></dl>
+            <progress id="progress" value="0" max="1" aria-label="Model download" hidden></progress>
+            <p class="fine-print">Browser AI loads on this device. The initial download can exceed 1 GB.</p>
+          </div>
+        </section>
+      <section class="panel tile">
+        <h2><span class="section-icon" aria-hidden="true">☁</span> Weather</h2>
+        <div class="tile-body weather"><div><strong>—</strong><p>No location configured</p></div><span aria-hidden="true">☁</span></div>
+      </section>
+      <section class="panel tile">
+        <div class="tile-heading"><h2><span class="section-icon" aria-hidden="true">▣</span> Camera</h2><button type="button" id="camera-toggle" class="icon-button" title="Toggle camera" aria-label="Toggle camera" aria-pressed="false">⏻</button></div>
+        <div class="tile-body"><div class="camera-view"><video id="camera-video" muted playsinline hidden></video><div id="camera-placeholder"><span class="camera-symbol" aria-hidden="true"></span><p id="camera-status" role="status">Camera off</p></div></div></div>
+      </section>
+      <section class="panel tile">
+        <h2><span class="section-icon" aria-hidden="true">◷</span> Session uptime</h2>
+        <div class="tile-body">
+          <div class="uptime"><span>Time open</span><output id="uptime">00:00:00</output></div>
+          <div class="metrics"><div>Messages<strong id="message-count">0</strong></div><div>Mode<strong>Browser</strong></div></div>
+        </div>
+      </section>
+      </aside>
+      <section class="core" id="ai-core" data-engine="standby" aria-labelledby="core-title">
+        <div class="core-content">
+        <div class="reactor" id="browser-reactor" aria-hidden="true">
+          <span class="reactor-ring reactor-outer"></span>
+          <span class="reactor-ring reactor-ticks"></span>
+          <span class="reactor-ring reactor-orbit"></span>
+          <span class="reactor-ring reactor-inner"></span>
+          <div class="reactor-center"><div id="browser-bars" class="waveform"><i></i><i></i><i></i><i></i><i></i></div></div>
+        </div>
+          <h1 id="core-title">J.A.R.V.I.S.</h1>
+          <p id="engine-state" class="badge core-state">Standby</p>
+          <p id="status" role="status">Load browser AI to start a conversation.</p>
+        </div>
+        <div class="core-controls">
+          <button class="quiet" id="camera-shortcut" type="button"><span class="camera-symbol" aria-hidden="true"></span> Camera</button>
+          <button id="load" type="button">Load browser AI</button>
+          <button class="quiet" id="keyboard-shortcut" type="button">⌨ <span>Type</span></button>
+
+        </div>
+      </section>
+      <section class="panel chat" id="conversation" aria-labelledby="chat-title">
+        <header class="chat-head"><h2 id="chat-title">Conversation</h2><div class="actions"><button class="quiet" id="clear" type="button">Clear</button><button class="quiet" id="export-conversation" type="button" disabled>Export</button></div></header>
+        <div id="messages" class="transcript" role="log" aria-label="Conversation messages">
+          <div class="empty" id="welcome"><strong>JARVIS</strong><p>Load browser AI to ask a question, or connect your local PC for voice and Gmail.</p></div>
+        </div>
+        <form id="ask-form" class="composer">
+          <div class="prompts" aria-label="Suggested questions"><button type="button" data-question="Explain a complex idea in simple terms.">Explain an idea</button><button type="button" data-question="Help me plan a focused day. Ask me about my priorities first.">Plan my day</button></div>
+          <div class="compose-row">
+            <label class="sr" for="question">Your question</label>
+            <textarea id="question" maxlength="4000" rows="1" placeholder="Type a message…"></textarea>
+            <button class="quiet" type="button" id="stop" hidden>Stop</button>
+            <button id="send" type="submit" disabled>Send</button>
+          </div>
+        </form>
+      </section>
+      <section class="panel dock" id="connections" aria-labelledby="connection-title">
+        <h2 id="connection-title">Connections</h2>
+        <div><p>Pair your Windows PC to use the microphone, hear spoken replies, and read Gmail from the Command Center.</p><div class="actions"><button type="button" id="local-connect">Use local PC</button><a href="https://github.com/sa3464-cloud/Jarvis-#readme">Windows setup</a></div></div>
+      </section>
+    </div>
+  </main>
+  <script defer src="dashboard.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

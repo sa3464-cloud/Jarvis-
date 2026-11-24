@@ -19,116 +19,106 @@
     <p id="pairing-message" role="status"></p>
   </section>
   <div class="shell">
-    <aside class="sidebar">
-      <a class="brand" href="/">
-        <span class="brand-mark" aria-hidden="true">◉</span>
-        <span>J A R V I S <small>COMMAND CENTER</small></span>
-      </a>
-      <nav aria-label="Command Center">
-        <a href="#console">Voice console</a>
-        <a href="#chat">Conversation</a>
-        <a href="#connections">Connections</a>
-      </nav>
-      <p class="sidebar-note">Runs on this computer.</p>
-    </aside>
-
-    <main>
-      <header class="topbar">
-        <span class="badge"><span class="dot" aria-hidden="true"></span> LOCAL CONSOLE</span>
+    <header class="topbar">
+      <a class="brand" href="/">J.A.R.V.I.S. <span class="badge" id="connection-state">Connecting</span></a>
+      <time id="clock" aria-label="Eastern time"><span id="clock-time"></span><span id="clock-date"></span></time>
+      <div class="top-actions">
         <button type="button" class="quiet" id="embed-disconnect">Disconnect</button>
-        <time id="clock" aria-label="Eastern time"></time>
-      </header>
-
-      <div class="overview" id="console">
-        <section class="panel core" aria-labelledby="voice-title">
-          <h1 id="voice-title">Voice console</h1>
-          <div id="reactor" class="hud" data-state="idle" aria-hidden="true">
-            <div class="hud-floor"></div>
-            <div class="hud-scan"></div>
-            <div class="orb">
-              <span class="hud-scale"></span>
-              <span class="hud-sweep"></span>
-              <span class="hud-dial"></span>
-              <span class="orbit"></span><span class="orbit orbit-secondary"></span>
-              <strong>J A R V I S <small>AI CORE</small></strong>
-            </div>
-            <div class="hud-readout hud-mic">
-              <span>Mic level</span><strong id="hud-mic">0%</strong>
-              <div class="hud-meter"></div>
-            </div>
-            <div class="hud-readout hud-playback">
-              <span>Playback</span><strong id="hud-playback">0%</strong>
-              <div class="hud-meter"></div>
-            </div>
-          </div>
-          <div class="voice-indicators">
-            <span id="state" class="badge">Idle</span>
-            <div id="bars" aria-hidden="true"></div>
-          </div>
-          <p id="status" role="status">Connecting to local server…</p>
-          <div class="actions core-actions">
-            <button id="mic" type="button" aria-describedby="voice-note">Start microphone</button>
-            <button id="stop" type="button" class="quiet">Stop / mute</button>
-          </div>
-          <p id="caption" class="caption" aria-live="polite">Microphone off</p>
-        </section>
-
-        <section class="panel system" aria-labelledby="system-title">
-          <h2 id="system-title">System status</h2>
-          <dl class="specs">
-            <div><dt>AI model</dt><dd id="model">Checking local model…</dd></div>
-            <div><dt>Voice</dt><dd id="voice-mode">Checking configuration…</dd></div>
-            <div><dt>Gmail</dt><dd id="email-mode">Checking availability…</dd></div>
-          </dl>
-          <label class="voice-option"><input id="approval" type="checkbox" aria-describedby="voice-note"> Enable spoken replies for this session</label>
-          <p id="voice-note">Starting the microphone enables voice for this session. Voice requests may use provider credits. Windows speech is available as a fallback.</p>
-        </section>
+        <a class="icon-button" href="#connections" aria-label="Connections" title="Connections">⚙</a>
       </div>
-
-      <section class="panel chat" id="chat" aria-labelledby="chat-title">
-        <div class="panel-heading">
-          <h2 id="chat-title">Conversation</h2>
-          <button id="clear" type="button" class="quiet">New conversation</button>
-        </div>
-        <p id="thread-empty" class="empty">Type a question below or start the microphone to talk.</p>
-        <div id="conversation" role="log" aria-live="polite" aria-label="Conversation messages"></div>
-        <label class="question-label" for="text">Your question</label>
-        <textarea id="text" maxlength="4000" rows="2" placeholder="What would you like help with?"></textarea>
-        <div class="send-row">
-          <span class="keyboard-hint">Enter to send · Shift + Enter for a new line</span>
-          <div class="actions">
-            <button id="speak" type="button" class="quiet">Speak text</button>
-            <button id="ask" type="button">Ask JARVIS</button>
+    </header>
+    <main class="dashboard" id="console" data-dashboard data-thread="conversation" data-input="text">
+      <aside class="instrument-rail" aria-label="Dashboard panels">
+        <section class="panel tile">
+          <h2><span class="section-icon" aria-hidden="true">◇</span> System status</h2>
+          <div class="tile-body">
+            <dl class="specs">
+              <div><dt>AI model</dt><dd id="model">Checking…</dd></div>
+              <div><dt>Voice</dt><dd id="voice-mode">Checking…</dd></div>
+              <div><dt>Gmail</dt><dd id="email-mode">Checking…</dd></div>
+            </dl>
+            <div class="metrics audio-metrics"><div>Mic level<strong id="hud-mic">0%</strong></div><div>Playback<strong id="hud-playback">0%</strong></div></div>
           </div>
-        </div>
-        <div class="prompts" aria-label="Suggested questions">
-          <button type="button" class="quiet" data-question="Explain a complex idea in simple terms.">Explain an idea</button>
-          <button type="button" class="quiet" data-question="Plan my day">Plan my day</button>
-          <button type="button" class="quiet" data-question="Quiz me on Physics 1, one question at a time.">Practice Physics 1</button>
+        </section>
+      <section class="panel tile">
+        <h2><span class="section-icon" aria-hidden="true">☁</span> Weather</h2>
+        <div class="tile-body weather"><div><strong>—</strong><p>No location configured</p></div><span aria-hidden="true">☁</span></div>
+      </section>
+      <section class="panel tile">
+        <div class="tile-heading"><h2><span class="section-icon" aria-hidden="true">▣</span> Camera</h2><button type="button" id="camera-toggle" class="icon-button" title="Toggle camera" aria-label="Toggle camera" aria-pressed="false">⏻</button></div>
+        <div class="tile-body"><div class="camera-view"><video id="camera-video" muted playsinline hidden></video><div id="camera-placeholder"><span class="camera-symbol" aria-hidden="true"></span><p id="camera-status" role="status">Camera off</p></div></div></div>
+      </section>
+      <section class="panel tile">
+        <h2><span class="section-icon" aria-hidden="true">◷</span> Session uptime</h2>
+        <div class="tile-body">
+          <div class="uptime"><span>Time open</span><output id="uptime">00:00:00</output></div>
+          <div class="metrics"><div>Messages<strong id="message-count">0</strong></div><div>Mode<strong>Local PC</strong></div></div>
         </div>
       </section>
-
-      <section class="panel connections" id="connections" aria-labelledby="connections-title">
-        <div class="panel-heading">
-          <h2 id="connections-title">Gmail inbox</h2>
-          <button id="inbox" type="button" class="quiet">Read unread email</button>
+      </aside>
+      <section class="core" aria-labelledby="core-title">
+        <div class="core-content">
+        <div class="reactor" id="reactor" data-state="idle" aria-hidden="true">
+          <span class="reactor-ring reactor-outer"></span>
+          <span class="reactor-ring reactor-ticks"></span>
+          <span class="reactor-ring reactor-orbit"></span>
+          <span class="reactor-ring reactor-inner"></span>
+          <div class="reactor-center"><div id="bars" class="waveform"></div></div>
         </div>
-        <p id="gmail-voice-note">Sign in with your NJIT account when prompted. JARVIS leaves messages unread. When voice is enabled, sender names and subjects may go to the speech provider.</p>
-        <div id="cards" aria-live="polite"></div>
-      </section>
-      <section class="panel connections" id="pairing-tools" aria-labelledby="pairing-tools-title">
-        <h2 id="pairing-tools-title">Connect the hosted Command Center</h2>
-        <p>Use a one-time code to open this local console inside the hosted JARVIS site. Codes expire after five minutes.</p>
-        <div class="actions">
-          <button id="issue-code" type="button" disabled>Generate pairing code</button>
-          <button id="revoke-pairing" type="button" class="quiet" disabled>Disconnect hosted session</button>
+          <h1 id="core-title">J.A.R.V.I.S.</h1>
+          <p id="state" class="badge core-state">Idle</p>
+          <p id="status" role="status">Connecting to local server…</p>
+          <p id="caption" class="caption" aria-live="polite">Microphone off</p>
         </div>
-        <label for="issued-code" id="issued-code-label" hidden>Copy this code into the hosted console</label>
-        <input id="issued-code" type="text" readonly hidden autocomplete="off" spellcheck="false">
-        <p id="issued-code-message" role="status"></p>
+        <div class="core-controls">
+          <button class="quiet" id="camera-shortcut" type="button"><span class="camera-symbol" aria-hidden="true"></span> Camera</button>
+          <button id="mic" type="button" aria-describedby="voice-note">Start microphone</button>
+          <button class="quiet" id="keyboard-shortcut" type="button">⌨ <span>Type</span></button>
+          <button id="stop" type="button" class="quiet">Stop / mute</button>
+        </div>
       </section>
+      <section class="panel chat" id="chat" aria-labelledby="chat-title">
+        <header class="chat-head"><h2 id="chat-title">Conversation</h2><div class="actions"><button class="quiet" id="clear" type="button">Clear</button><button class="quiet" id="export-conversation" type="button" disabled>Export</button></div></header>
+        <div class="transcript" id="thread-scroll">
+          <div id="thread-empty" class="empty"><strong>JARVIS</strong><p>Type a message or start the microphone to talk.</p></div>
+          <div id="conversation" role="log" aria-label="Conversation messages"></div>
+        </div>
+        <div class="composer">
+          <div class="prompts" aria-label="Suggested questions">
+            <button type="button" data-question="Plan my day">Plan my day</button>
+            <button type="button" data-question="Quiz me on Physics 1, one question at a time.">Practice Physics 1</button>
+          </div>
+          <div class="compose-row">
+            <label class="sr" for="text">Your question</label>
+            <textarea id="text" maxlength="4000" rows="1" placeholder="Type a message…"></textarea>
+            <button id="ask" type="button">Send</button>
+          </div>
+          <div class="voice-settings"><label><input id="approval" type="checkbox" aria-describedby="voice-note"> Spoken replies</label><button id="speak" type="button" class="quiet">Speak text</button></div>
+        </div>
+      </section>
+    <section class="panel dock" id="connections" aria-labelledby="connections-title">
+      <div class="chat-head">
+        <h2 id="connections-title">Gmail inbox</h2>
+        <button id="inbox" type="button" class="quiet">Read unread email</button>
+      </div>
+      <p id="voice-note">Starting the microphone enables spoken replies for this session and may use provider credits.</p>
+      <p id="gmail-voice-note">Sign in with your NJIT account when prompted. JARVIS leaves messages unread. When voice is enabled, sender names and subjects may go to the speech provider.</p>
+      <div id="cards" aria-live="polite"></div>
+    </section>
+    <section class="panel dock" id="pairing-tools" aria-labelledby="pairing-tools-title">
+      <h2 id="pairing-tools-title">Connect the hosted Command Center</h2>
+      <p>Use a one-time code to open this local console inside the hosted JARVIS site. Codes expire after five minutes.</p>
+      <div class="actions">
+        <button id="issue-code" type="button" disabled>Generate pairing code</button>
+        <button id="revoke-pairing" type="button" class="quiet" disabled>Disconnect hosted session</button>
+      </div>
+      <label for="issued-code" id="issued-code-label" hidden>Copy this code into the hosted console</label>
+      <input id="issued-code" type="text" readonly hidden autocomplete="off" spellcheck="false">
+      <p id="issued-code-message" role="status"></p>
+    </section>
     </main>
   </div>
-  <script src="/voice.js"></script>
+  <script defer src="/dashboard.js"></script>
+  <script defer src="/voice.js"></script>
 </body>
 </html>

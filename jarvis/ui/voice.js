@@ -3,11 +3,12 @@ const LEVEL_THRESHOLD = 0.025;
 const MAX_TURN_MS = 30000;
 const $ = id => document.getElementById(id);
 const embedded = document.body.dataset.mode === 'embedded';
+const hostedOrigin = 'https://seth-jarvis-command-center.sa3464.chatgpt.site';
 let csrf, enabled = false, stream, context, captureNode, interval, speech, speechURL;
 let busy = false, generation = 0;
 let history = [];
 let statusRequest;
-for (let i=0;i<24;i++) $('bars').appendChild(document.createElement('i'));
+for (let i=0;i<5;i++) $('bars').appendChild(document.createElement('i'));
 function setHudMeter(channel,fraction) {
   const value=`${Math.round(Math.max(0,Math.min(1,fraction))*100)}%`;
   const readout=$(`hud-${channel}`);
@@ -72,7 +73,6 @@ function addTurn(role, text) {
   const conversation=$('conversation');
   conversation.appendChild(card);
   while(conversation.children.length>20)conversation.firstChild.remove();
-  conversation.scrollTop=conversation.scrollHeight;
 }
 function showInbox(card) {
   $('cards').replaceChildren();
@@ -110,7 +110,7 @@ function deaf() {
   if(captureNode){captureNode.port.close();captureNode=null;}
   if(stream) stream.getTracks().forEach(track=>track.stop()); stream=null;
   if(context) context.close().catch(()=>{}); context=null;
-  for(const bar of $('bars').children) bar.style.height='3px';
+  for(const bar of $('bars').children) bar.style.removeProperty('height');
   setHudMeter('mic',0);
 }
 function stop() {
@@ -319,6 +319,7 @@ function lockEmbedded(message){
   $('text').value='';
   history=[];
   delete document.body.dataset.paired;
+  window.parent.postMessage({type:'jarvis-pairing',paired:false},hostedOrigin);
   $('pairing-message').textContent=message;
 }
 
@@ -337,20 +338,10 @@ document.querySelectorAll('button[data-question]').forEach(button=>{
   };
 });
 
-const easternTime=new Intl.DateTimeFormat(undefined,{
-  month:'short',day:'numeric',hour:'numeric',minute:'2-digit',
-  timeZone:'America/New_York',timeZoneName:'short',
-});
-function updateClock(){
-  const now=new Date();
-  $('clock').dateTime=now.toISOString();
-  $('clock').textContent=easternTime.format(now);
-}
-updateClock();
-setInterval(updateClock,15000);
-
 function showConsole(status, announce=true){
   csrf=status.csrf;
+  $('connection-state').textContent='Online';
+  $('connection-state').setAttribute('data-online','');
   $('model').textContent=status.model.message;
   const provider=status.tts_provider==='fish_audio'?'Fish Audio':'ElevenLabs';
   const speechConfigured=status.tts_configured??status.voice_configured;
@@ -385,6 +376,7 @@ if(embedded){
       if(!response.ok)throw Error(result.error||'Pairing failed.');
       showConsole(result);
       document.body.dataset.paired='';
+      window.parent.postMessage({type:'jarvis-pairing',paired:true},hostedOrigin);
       $('pairing-message').textContent='';
       $('text').focus();
     }catch(error){
@@ -404,7 +396,10 @@ if(embedded){
   };
 }else{
   readLocalStatus().then(showConsole)
-    .catch(error=>state('Error',`Server unavailable: ${error.message}`));
+    .catch(error=>{
+      $('connection-state').textContent='Offline';
+      state('Error',`Server unavailable: ${error.message}`);
+    });
   $('issue-code').onclick=async()=>{
     try{
       const result=await (await api('/api/embed-code','{}')).json();

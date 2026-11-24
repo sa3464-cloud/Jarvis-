@@ -1,16 +1,21 @@
 const $=id=>document.getElementById(id);
 let worker,ready=false,busy=false,history=[],output,sequence=0;
 function status(text){$('status').textContent=text;}
-function engineState(label,mode){$('engine-state').textContent=label;$('ai-core').dataset.engine=mode;}
+function engineState(label,mode){
+  $('engine-state').textContent=label;
+  $('ai-core').dataset.engine=mode;
+  $('model-status').textContent=mode==='loading'?'Downloading':ready?'Loaded':'On demand';
+  if($('local-mode').hidden)$('connection-state').toggleAttribute('data-online',ready);
+}
 function asksForInbox(text){
   return /\b(?:my|unread|recent|latest)\s+(?:unread\s+)?(?:e-?mails?|inbox)\b|\b(?:read|check|show|summarize|summarise)\b.{0,30}\binbox\b/i.test(text);
 }
 function add(role,text){$('welcome')?.remove();const card=document.createElement('article');card.className=role;const title=document.createElement('strong');title.textContent=role==='user'?'YOU':'JARVIS';const body=document.createElement('p');body.textContent=text;card.append(title,body);$('messages').appendChild(card);while($('messages').children.length>22)$('messages').firstChild.remove();return body;}
-function finish(){busy=false;$('send').disabled=!ready;$('stop').hidden=true;engineState(ready?'ENGINE READY':'ENGINE STANDBY',ready?'ready':'standby');}
-function resetWorker(){worker?.terminate();worker=null;ready=false;finish();$('load').disabled=false;$('load').textContent='Load browser AI ↗';$('progress').hidden=true;}
+function finish(){busy=false;$('send').disabled=!ready;$('stop').hidden=true;engineState(ready?'Ready':'Standby',ready?'ready':'standby');}
+function resetWorker(){worker?.terminate();worker=null;ready=false;finish();$('load').disabled=false;$('load').textContent='Load browser AI';$('progress').hidden=true;}
 $('load').onclick=async()=>{
   if(!navigator.gpu){status('WebGPU is unavailable. Try a current Chrome or Edge browser on a supported device. The desktop console is another option.');return;}
-  $('load').disabled=true;$('progress').hidden=false;engineState('LOADING ENGINE','loading');status('Checking your GPU and loading the browser engine…');
+  $('load').disabled=true;$('progress').hidden=false;engineState('Loading model','loading');status('Checking your GPU and loading the browser engine…');
   try{
     if(!await navigator.gpu.requestAdapter())throw Error('No compatible GPU adapter is available.');
     worker=new Worker('engine.js',{type:'module'});
@@ -35,13 +40,12 @@ $('ask-form').onsubmit=event=>{
     $('question').value='';
     return;
   }
-  busy=true;sequence++;add('user',question);output=add('assistant','');history.push({role:'user',content:question});history=history.slice(-20);$('question').value='';$('send').disabled=true;$('stop').hidden=false;engineState('THINKING','thinking');status('Generating an answer locally…');worker.postMessage({type:'chat',id:sequence,history});
+  busy=true;sequence++;add('user',question);output=add('assistant','');history.push({role:'user',content:question});history=history.slice(-20);$('question').value='';$('send').disabled=true;$('stop').hidden=false;engineState('Thinking','thinking');status('Generating an answer locally…');worker.postMessage({type:'chat',id:sequence,history});
 };
 $('question').onkeydown=event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();$('ask-form').requestSubmit();}};
 $('stop').onclick=()=>{sequence++;resetWorker();if(output&&!output.textContent)output.textContent='Generation stopped.';status('Stopped. Reload the browser AI to continue; cached model files can be reused.');};
 $('clear').onclick=()=>{if(busy)$('stop').click();history=[];$('messages').replaceChildren();status(ready?'New conversation. The engine is ready.':'Conversation cleared. Load the browser AI to begin.');};
 document.querySelectorAll('[data-question]').forEach(button=>button.onclick=()=>{$('question').value=button.dataset.question;$('question').focus();});
-function clock(){$('clock').textContent=new Date().toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'America/New_York',timeZoneName:'short'});}clock();setInterval(clock,30000);
 if(!navigator.gpu)status('This browser does not expose WebGPU. Use a supported Chrome or Edge device, or open the desktop console.');
 
 const localOrigin='http://127.0.0.1:8767';
@@ -51,6 +55,10 @@ function showMode(local){
   $('local-mode').hidden=!local;
   $('local-toggle').textContent=local?'Use browser AI':'Use local PC';
   $('local-toggle').setAttribute('aria-pressed',String(local));
+  $('settings-link').hidden=local;
+  $('local-mode').classList.remove('is-paired');
+  $('connection-state').textContent=local?'Local PC':'Browser';
+  $('connection-state').toggleAttribute('data-online',!local&&ready);
   if(!local){
     localAttempt?.abort();
     $('local-frame').removeAttribute('src');
@@ -88,4 +96,9 @@ async function openLocal(){
 $('local-toggle').onclick=()=>{$('local-mode').hidden?openLocal():showMode(false);};
 $('local-connect').onclick=openLocal;
 $('local-retry').onclick=openLocal;
-document.querySelectorAll('aside nav a').forEach(link=>link.addEventListener('click',()=>showMode(false)));
+window.addEventListener('message',event=>{
+  if(event.origin!==localOrigin||event.source!==$('local-frame').contentWindow||$('local-mode').hidden)return;
+  if(event.data?.type!=='jarvis-pairing'||typeof event.data.paired!=='boolean')return;
+  $('local-mode').classList.toggle('is-paired',event.data.paired);
+  $('connection-state').toggleAttribute('data-online',event.data.paired);
+});

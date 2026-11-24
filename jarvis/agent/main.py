@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from . import data, voice, conversation, tools
 
 UI = data.ROOT / 'ui'
+DASHBOARD_ASSETS = data.ROOT.parent / 'public-site' / 'dist'
 PUBLIC_ORIGIN = 'https://seth-jarvis-command-center.sa3464.chatgpt.site'
 EMBED_ACTIONS = {'chat', 'listen', 'listen/local', 'speak', 'inbox', 'disconnect'}
 
@@ -130,12 +131,15 @@ class Handler(BaseHTTPRequestHandler):
             html = (UI / 'voice.html').read_text(encoding='utf-8')
             html = html.replace('data-mode="standalone"', 'data-mode="embedded"', 1)
             return self.reply(200, html.encode('utf-8'), 'text/html; charset=utf-8')
-        files = {'/': ('voice.html', 'text/html; charset=utf-8'), '/voice.js': ('voice.js', 'text/javascript'),
-                 '/voice.css': ('voice.css', 'text/css'), '/voice-capture.js': ('voice-capture.js', 'text/javascript')}
+        files = {'/': (UI / 'voice.html', 'text/html; charset=utf-8'),
+                 '/voice.js': (UI / 'voice.js', 'text/javascript'),
+                 '/voice.css': (DASHBOARD_ASSETS / 'style.css', 'text/css'),
+                 '/dashboard.js': (DASHBOARD_ASSETS / 'dashboard.js', 'text/javascript'),
+                 '/voice-capture.js': (UI / 'voice-capture.js', 'text/javascript')}
         if path not in files:
             return self.reply(404, {'error': 'Not found'})
-        name, mime = files[path]
-        self.reply(200, (UI / name).read_bytes(), mime)
+        file, mime = files[path]
+        self.reply(200, file.read_bytes(), mime)
 
     def do_POST(self):
         origin = f'http://127.0.0.1:{self.server.server_port}'
