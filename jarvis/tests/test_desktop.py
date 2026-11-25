@@ -31,21 +31,11 @@ class DesktopMotionTest(unittest.TestCase):
 
 
 class DesktopAudioTest(unittest.TestCase):
-    def test_confirmation_discards_mishearing_and_submits_only_the_confirmed_question(self):
+    def test_voice_transcript_submits_immediately(self):
         desktop = Mock()
-        desktop.pending_voice = None
         desktop.hidden = False
-        Desktop.hear(desktop, 'Open the wrong site')
-        desktop.run.assert_called_once()
-        desktop.submit.assert_not_called()
-        Desktop.hear(desktop, 'No.')
-        self.assertIsNone(desktop.pending_voice)
-        desktop.submit.assert_not_called()
         Desktop.hear(desktop, ' Explain how a resistor works ')
-        desktop.submit.assert_not_called()
-        Desktop.hear(desktop, 'Yes, JARVIS!')
         desktop.submit.assert_called_once_with('Explain how a resistor works')
-        self.assertIsNone(desktop.pending_voice)
 
     def test_voice_stop_command_does_not_start_a_chat_turn(self):
         desktop = Mock()
@@ -53,24 +43,12 @@ class DesktopAudioTest(unittest.TestCase):
         desktop.stop_voice.assert_called_once_with()
         desktop.submit.assert_not_called()
 
-    def test_expired_confirmation_never_submits(self):
+    def test_unrecognized_speech_returns_to_listening(self):
         desktop = Mock()
-        desktop.pending_voice = ('Open the wrong site', 10)
-        desktop.hidden = False
-        with patch('jarvis.agent.desktop.time.monotonic', return_value=11):
-            Desktop.hear(desktop, 'Yes')
-        desktop.submit.assert_not_called()
-        desktop.start_listening.assert_called_once()
-        self.assertIsNone(desktop.pending_voice)
-
-    def test_unrecognized_confirmation_discards_the_pending_question(self):
-        desktop = Mock()
-        desktop.pending_voice = ('Open the wrong site', 10)
         desktop.hidden = False
         Desktop.hear(desktop, '')
         desktop.submit.assert_not_called()
         desktop.start_listening.assert_called_once()
-        self.assertIsNone(desktop.pending_voice)
 
     def test_waveform_and_energy_keep_actual_sample_sign_and_level(self):
         peaks, energy = signal([-16384, 16384, -16384, 16384], points=4)

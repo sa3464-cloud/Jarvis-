@@ -4,7 +4,6 @@ const TAIL_MS = 450;
 const MIN_SPEECH_MS = 160;
 const PLAYBACK_COOLDOWN_MS = 650;
 const MAX_TURN_MS = 30000;
-const CONFIRMATION_MS = 45000;
 const $ = id => document.getElementById(id);
 const embedded = document.body.dataset.mode === 'embedded';
 const hostedOrigin = 'https://seth-jarvis-command-center.sa3464.chatgpt.site';
@@ -12,7 +11,6 @@ let csrf, enabled = false, stream, context, captureNode, speech, speechURL;
 let finishCapture;
 let busy = false, generation = 0;
 let cloudConfigured = true, cloudRecognition = true;
-let pendingVoice;
 let history = [];
 let statusRequest;
 for (let i=0;i<5;i++) $('bars').appendChild(document.createElement('i'));
@@ -127,7 +125,6 @@ function deaf() {
 }
 function stop() {
   generation++; enabled=false; deaf(); busy=false;
-  pendingVoice=null;
   if(speech) {speech.pause();speech.src='';speech=null;}
   if(speechURL) URL.revokeObjectURL(speechURL);speechURL=null;
   $('ask').disabled=false;
@@ -137,7 +134,7 @@ async function resumeListening(message) {
   try{await record(`${message} Listening again.`);}
   catch(error){stop();state('Error',error.message);}
 }
-async function say(text, confirmation = false) {
+async function say(text) {
   approved();
   if(speech){speech.pause();speech.src='';speech=null;}
   if(speechURL){URL.revokeObjectURL(speechURL);speechURL=null;}
@@ -145,7 +142,7 @@ async function say(text, confirmation = false) {
   setHudMeter('playback',0);
   state('Thinking','Generating speech… microphone is off.');
   try {
-    const response=await api(confirmation?'/api/speak/local':'/api/speak',JSON.stringify({text}));
+    const response=await api('/api/speak',JSON.stringify({text}));
     const localVoice=response.headers.get('Content-Type')==='audio/wav';
     const notice=response.headers.get('X-Jarvis-Voice-Notice');
     const blob=await response.blob();
@@ -156,7 +153,7 @@ async function say(text, confirmation = false) {
     await new Promise((resolve,reject)=>{
       playback.onplaying=()=>{
         if(ticket!==generation)return;
-        state('Speaking',confirmation?'Repeating what JARVIS heard.':localVoice?`${notice?notice+' ':''}Using the built-in Windows voice.`:'Microphone is off while JARVIS speaks.');
+        state('Speaking',localVoice?`${notice?notice+' ':''}Using the built-in Windows voice.`:'Microphone is off while JARVIS speaks.');
       };
       playback.onwaiting=()=>{
         if(ticket===generation)state('Thinking','Waiting for audio playback…');
@@ -177,7 +174,6 @@ async function say(text, confirmation = false) {
     });
     if(ticket!==generation)return;
     URL.revokeObjectURL(speechURL);speechURL=null;speech=null;busy=false;
-    if(confirmation&&pendingVoice)pendingVoice.expires=Date.now()+CONFIRMATION_MS;
     state('Idle',localVoice?'Spoken with the built-in Windows voice.':'Speech finished.');
     if(enabled){
       // Let speaker echo decay before opening the microphone for the next turn.
@@ -188,7 +184,6 @@ async function say(text, confirmation = false) {
     if(ticket!==generation)return;
     if(speechURL)URL.revokeObjectURL(speechURL);
     speechURL=null;speech=null;busy=false;
-    if(confirmation)pendingVoice=null;
     if(enabled)await resumeListening(error.message);
     else state('Error',error.message);
   }
@@ -201,33 +196,15 @@ async function hear(transcript) {
     return;
   }
   if(!words){
-    const awaitingConfirmation=Boolean(pendingVoice);
-    pendingVoice=null;
-    await record(awaitingConfirmation?'I couldn’t confirm that. Repeat your question.':'I didn’t catch that. Try again.');
+    await record('I didn’t catch that. Try again.');
     return;
   }
-  const previous=pendingVoice;
-  const yes=/^yes(?: jarvis)?$/.test(words);
-  if(previous&&yes){
-    pendingVoice=null;
-    if(Date.now()>previous.expires){await record('That confirmation expired. Repeat your question.');return;}
-    $('caption').textContent=`Confirmed: ${previous.question}`;
-    await ask(previous.question);
-    return;
-  }
-  if(previous&&/^(?:no(?: jarvis)?|cancel(?: that)?)$/.test(words)){
-    pendingVoice=null;
-    await record('Discarded. Go ahead with your question.');
-    return;
-  }
-  if(transcript.length>3800){
-    pendingVoice=null;
+  if(transcript.length>4000){
     await record('That recording was too long. Try a shorter question.');
     return;
   }
-  pendingVoice={question:transcript,expires:0};
   $('caption').textContent=`Heard: ${transcript}`;
-  await say(`I heard: ${transcript}. Say yes to send it, or no to try again.`,true);
+  await ask(transcript);
 }
 async function speechWav(chunks, startFrame, endFrame, inputRate) {
   const capturedFrames=endFrame-startFrame;
@@ -277,7 +254,7 @@ async function speechWav(chunks, startFrame, endFrame, inputRate) {
   }
   return buffer;
 }
-async function record(message = pendingVoice ? 'Say yes to send, no to discard, or repeat the question.' : 'Speak naturally. JARVIS will ask you to confirm.') {
+async function record(message = 'Speak naturally. JARVIS answers after you pause.') {
   approved(); if(busy)return;
   if(!navigator.mediaDevices?.getUserMedia||!window.AudioWorkletNode) throw Error('This browser cannot record audio. Try a current Chrome, Edge, Firefox, or Safari.');
   const captureTicket=generation;
@@ -308,7 +285,7 @@ async function record(message = pendingVoice ? 'Say yes to send, no to discard, 
   const sampleRate=captureContext.sampleRate;
   const framesFor=ms=>Math.round(ms*sampleRate/1000);
   const maxFrames=framesFor(MAX_TURN_MS);
-  const minVoiceFrames=framesFor(pendingVoice?80:MIN_SPEECH_MS);
+  const minVoiceFrames=framesFor(MIN_SPEECH_MS);
   let capturedFrames=0, firstFrame=0;
   let speechStart=null;
   let lastSignalFrame=0;
@@ -391,7 +368,7 @@ async function record(message = pendingVoice ? 'Say yes to send, no to discard, 
   finishCapture=finishRecording;
   $('mic').textContent='Finish recording';
   state('Listening',message);
-  $('caption').textContent=pendingVoice?`Heard: ${pendingVoice.question}`:'Hands-free microphone on. Say “stop listening” to stop.';
+  $('caption').textContent='Hands-free microphone on. Say “stop listening” to stop.';
 }
 $('mic').onclick=async()=>{
   if(finishCapture){await finishCapture(true);return;}
@@ -423,10 +400,7 @@ $('clear').onclick=()=>{
   $('text').value='';
   state('Idle','New conversation.');
 };
-$('speak').onclick=()=>{
-  pendingVoice=null;
-  say($('text').value).catch(error=>state('Error',error.message));
-};
+$('speak').onclick=()=>say($('text').value).catch(error=>state('Error',error.message));
 $('approval').onchange=()=>{if(!$('approval').checked)stop();};
 $('inbox').onclick=async()=>{
   stop();$('inbox').disabled=true;state('Thinking','Sign into Google in the opened browser. Waiting for inbox…');
@@ -476,7 +450,7 @@ function showConsole(status, announce=true){
   const provider=status.tts_provider==='fish_audio'?'Fish Audio':'ElevenLabs';
   const speechConfigured=status.tts_configured??status.voice_configured;
   $('voice-mode').textContent=speechConfigured?`${provider} speech · Windows fallback`:`Windows speech · ${provider} setup needed`;
-  $('voice-note').textContent=`Start the microphone for hands-free conversation. After the Windows readback, say yes to send or no to discard. ElevenLabs transcribes when available, with Windows as the fallback. Reply text may go to ${provider}. Say “stop listening” to end the session.`;
+  $('voice-note').textContent=`Start the microphone for hands-free conversation. JARVIS answers after you pause. ElevenLabs transcribes when available, with Windows as the fallback. Reply text may go to ${provider}. Say “stop listening” to end the session.`;
   $('gmail-voice-note').textContent=`Sign in with your NJIT account when prompted. JARVIS leaves messages unread. When voice is enabled, sender names and subjects may go to ${provider} for speech.`;
   $('email-mode').textContent=status.demo?'Disabled in demo mode':'Read-only · sign-in on request';
   $('inbox').disabled=status.demo;

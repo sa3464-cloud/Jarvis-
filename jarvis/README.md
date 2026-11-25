@@ -84,8 +84,8 @@ sign-in.
   inbox controls, and **Dismiss** to retract it.
 - Select **Minimize** for the compact orb and tap it to restore. Use **Hide** or
   **Ctrl+Alt+J** to hide/show JARVIS. **Exit** is in the panel.
-- Check **Hands-free voice** and speak. JARVIS reads back what it heard.
-  Say **yes** to send, **no** to discard, or speak a corrected question.
+- Check **Hands-free voice** and speak. JARVIS answers after you pause and
+  shows what it heard in the conversation panel.
   Say “stop listening” or press Escape to stop.
   Audio stays in memory. ElevenLabs transcribes the microphone. Reply text goes
   to the configured speech provider, with Windows speech as a fallback.
@@ -186,10 +186,8 @@ automatic GPU selection later.
 
 Type a question and click **Send** or press Enter (Shift+Enter adds a line).
 Click **Start microphone** once, then speak naturally. After you pause, JARVIS
-reads back what it heard using the local Windows voice. Say **yes** to send
-that question, **no** to discard it, or speak a corrected question. The
-configured voice reads the answer, then JARVIS listens again. Say “stop
-listening” or choose **Stop / mute** to end the session.
+shows what it heard in the conversation and speaks the answer. It then listens
+again. Say “stop listening” or choose **Stop / mute** to end the session.
 The last 10 turns stay in page memory for follow-ups such as “why?” or “the second
 one.” Reloading the page or **New conversation** clears that context.
 
