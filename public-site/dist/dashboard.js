@@ -23,6 +23,59 @@
   tick();
   setInterval(tick, 1000);
 
+  const weatherUrl = new URL('https://api.open-meteo.com/v1/forecast');
+  weatherUrl.search = new URLSearchParams({
+    latitude: '40.7357',
+    longitude: '-74.1724',
+    current: 'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m',
+    temperature_unit: 'fahrenheit',
+    wind_speed_unit: 'mph',
+    timezone: eastern.timeZone,
+  });
+  const weatherConditions = {
+    0: ['Clear', '☀'], 1: ['Mostly clear', '☀'], 2: ['Partly cloudy', '⛅'], 3: ['Overcast', '☁'],
+    45: ['Fog', '≋'], 48: ['Fog', '≋'],
+    51: ['Drizzle', '🌧'], 53: ['Drizzle', '🌧'], 55: ['Drizzle', '🌧'],
+    56: ['Freezing drizzle', '🌧'], 57: ['Freezing drizzle', '🌧'],
+    61: ['Rain', '🌧'], 63: ['Rain', '🌧'], 65: ['Heavy rain', '🌧'],
+    66: ['Freezing rain', '🌧'], 67: ['Freezing rain', '🌧'],
+    71: ['Snow', '❄'], 73: ['Snow', '❄'], 75: ['Heavy snow', '❄'], 77: ['Snow grains', '❄'],
+    80: ['Rain showers', '🌧'], 81: ['Rain showers', '🌧'], 82: ['Heavy showers', '🌧'],
+    85: ['Snow showers', '❄'], 86: ['Snow showers', '❄'],
+    95: ['Thunderstorms', 'ϟ'], 96: ['Thunderstorms with hail', 'ϟ'], 99: ['Thunderstorms with hail', 'ϟ'],
+  };
+
+  function weatherReading(value, unit) {
+    return Number.isFinite(value) ? Math.round(value) + unit : '—';
+  }
+
+  async function refreshWeather() {
+    try {
+      const response = await fetch(weatherUrl, {
+        credentials: 'omit', referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(10000),
+      });
+      if (!response.ok) throw Error('Weather request failed.');
+      const {current} = await response.json();
+      if (!Number.isFinite(current?.temperature_2m)) throw Error('Missing current temperature.');
+      const [condition, icon] = weatherConditions[current.weather_code] ?? ['Current conditions', '☁'];
+      byId('weather-temperature').textContent = weatherReading(current.temperature_2m, '°F');
+      byId('weather-condition').textContent = condition;
+      byId('weather-icon').textContent = icon;
+      byId('weather-feels-like').textContent = weatherReading(current.apparent_temperature, '°F');
+      byId('weather-humidity').textContent = weatherReading(current.relative_humidity_2m, '%');
+      byId('weather-wind').textContent = weatherReading(current.wind_speed_10m, ' mph');
+      byId('weather-details').hidden = false;
+    } catch {
+      byId('weather-temperature').textContent = '—';
+      byId('weather-condition').textContent = 'Weather temporarily unavailable';
+      byId('weather-icon').textContent = '☁';
+      byId('weather-details').hidden = true;
+    }
+  }
+
+  void refreshWeather();
+  setInterval(refreshWeather, 15 * 60 * 1000);
+
   const dashboard = document.querySelector('[data-dashboard]');
   const input = byId(dashboard.dataset.input);
   byId('keyboard-shortcut').addEventListener('click', () => input.focus());

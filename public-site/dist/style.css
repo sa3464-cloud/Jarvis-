@@ -125,7 +125,9 @@ button:disabled { opacity: .48; cursor: default; }
 .weather, .uptime { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
 .weather strong { font: 600 1.35rem var(--mono); }
 .weather p, .uptime { font-size: .875rem; }
+.weather .weather-location { color: var(--accent); font-weight: 600; }
 .weather > span { color: #9bdaee; font-size: 2.1rem; }
+.weather-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: .65rem; }
 .uptime { padding-bottom: .65rem; color: var(--muted); }
 .uptime output { font-size: 1.125rem; color: #bdeaf6; }
 .camera-view {

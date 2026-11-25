@@ -42,7 +42,18 @@
         </section>
       <section class="panel tile">
         <h2><span class="section-icon" aria-hidden="true">☁</span> Weather</h2>
-        <div class="tile-body weather"><div><strong>—</strong><p>No location configured</p></div><span aria-hidden="true">☁</span></div>
+        <div class="tile-body">
+          <div class="weather">
+            <div><p class="weather-location">Newark, NJ</p><strong id="weather-temperature">—</strong><p id="weather-condition" role="status">Loading weather…</p></div>
+            <span id="weather-icon" aria-hidden="true">☁</span>
+          </div>
+          <div class="metrics weather-metrics" id="weather-details" hidden>
+            <div>Feels like<strong id="weather-feels-like">—</strong></div>
+            <div>Humidity<strong id="weather-humidity">—</strong></div>
+            <div>Wind<strong id="weather-wind">—</strong></div>
+          </div>
+          <p class="fine-print">Weather data from <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a></p>
+        </div>
       </section>
       <section class="panel tile">
         <div class="tile-heading"><h2><span class="section-icon" aria-hidden="true">▣</span> Camera</h2><button type="button" id="camera-toggle" class="icon-button" title="Toggle camera" aria-label="Toggle camera" aria-pressed="false">⏻</button></div>

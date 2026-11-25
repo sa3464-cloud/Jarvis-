@@ -90,8 +90,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header('X-Jarvis-Voice-Notice', speech_notice)
         path = urlparse(self.path).path
         ancestors = PUBLIC_ORIGIN if code == 200 and path == '/embedded' else "'none'"
+        weather = ' https://api.open-meteo.com' if path in ('/', '/embedded') else ''
         self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; "
-                         f"media-src 'self' blob:; connect-src 'self'; frame-ancestors {ancestors}")
+                         f"media-src 'self' blob:; connect-src 'self'{weather}; frame-ancestors {ancestors}")
         if code == 200 and path == '/embed-ready' and self.probe_origin():
             self.send_header('Access-Control-Allow-Origin', PUBLIC_ORIGIN)
             self.send_header('Vary', 'Origin')
