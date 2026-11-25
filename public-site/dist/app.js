@@ -49,7 +49,11 @@ document.querySelectorAll('[data-question]').forEach(button=>button.onclick=()=>
 if(!navigator.gpu)status('This browser does not expose WebGPU. Use a supported Chrome or Edge device, or open the desktop console.');
 
 const localOrigin='http://127.0.0.1:8767';
+const localFrame=$('local-frame');
 let localAttempt;
+function preferBrowser(value){
+  try{sessionStorage.setItem('jarvis-browser-mode',String(value));}catch{}
+}
 function showMode(local){
   $('browser-mode').hidden=local;
   $('local-mode').hidden=!local;
@@ -61,18 +65,21 @@ function showMode(local){
   $('connection-state').toggleAttribute('data-online',!local&&ready);
   if(!local){
     localAttempt?.abort();
-    $('local-frame').removeAttribute('src');
-    $('local-frame').hidden=true;
+    localAttempt=null;
+    localFrame.hidden=true;
+    localFrame.removeAttribute('src');
   }
 }
 
-async function openLocal(){
-  showMode(true);
+async function openLocal(automatic=false){
+  if(!automatic)showMode(true);
   localAttempt?.abort();
   const attempt=new AbortController();
   localAttempt=attempt;
   $('local-retry').hidden=true;
-  $('local-status').textContent='Checking the JARVIS server on this PC. Allow loopback access if Chrome asks.';
+  $('local-code-link').hidden=true;
+  $('local-status').textContent='Connecting to JARVIS on this PC. Allow loopback access if Chrome asks.';
+  $('connection-state').textContent='Connecting';
   let timeout;
   try{
     timeout=setTimeout(()=>attempt.abort(),25000);
@@ -80,25 +87,52 @@ async function openLocal(){
       mode:'cors',credentials:'omit',targetAddressSpace:'loopback',signal:attempt.signal,
     });
     if(!response.ok)throw Error('The local server did not accept this site.');
-    if(attempt!==localAttempt||$('local-mode').hidden)return;
-    $('local-frame').src=localOrigin+'/embedded';
-    $('local-frame').hidden=false;
-    $('local-status').textContent='Generate a code on your PC and enter it in the local console below.';
+    if(attempt!==localAttempt)return;
+    showMode(true);
+    localFrame.src=localOrigin+'/embedded';
+    localFrame.hidden=false;
+    $('local-status').textContent='Opening your voice console…';
   }catch(error){
-    if(attempt!==localAttempt||$('local-mode').hidden)return;
+    if(attempt!==localAttempt)return;
+    if(automatic)showMode(false);
     $('local-retry').hidden=false;
-    $('local-status').textContent='Could not reach the local console. Start JARVIS and allow this site to access loopback on this PC, then retry.';
+    const message='Could not reach JARVIS on this PC. Check that JARVIS is running and Chrome allows loopback access, then try again.';
+    $('local-status').textContent=message;
+    $('local-connection-note').textContent=message;
   }finally{
     clearTimeout(timeout);
   }
 }
 
-$('local-toggle').onclick=()=>{$('local-mode').hidden?openLocal():showMode(false);};
-$('local-connect').onclick=openLocal;
-$('local-retry').onclick=openLocal;
+function connectPC(){
+  preferBrowser(false);
+  void openLocal();
+}
+$('local-toggle').onclick=()=>{
+  if($('local-mode').hidden)connectPC();
+  else{preferBrowser(true);showMode(false);}
+};
+$('local-connect').onclick=connectPC;
+$('local-retry').onclick=connectPC;
+localFrame.addEventListener('load',()=>{
+  if(!localFrame.hidden)localFrame.contentWindow.postMessage({type:'jarvis-connect'},localOrigin);
+});
 window.addEventListener('message',event=>{
-  if(event.origin!==localOrigin||event.source!==$('local-frame').contentWindow||$('local-mode').hidden)return;
+  if(event.origin!==localOrigin||event.source!==localFrame.contentWindow||$('local-mode').hidden)return;
+  if(event.data?.type==='jarvis-pairing-required'){
+    $('local-status').textContent='Use a pairing code to finish connecting this PC.';
+    $('local-code-link').hidden=false;
+    return;
+  }
   if(event.data?.type!=='jarvis-pairing'||typeof event.data.paired!=='boolean')return;
   $('local-mode').classList.toggle('is-paired',event.data.paired);
   $('connection-state').toggleAttribute('data-online',event.data.paired);
+  if(event.data.reason==='disconnected'){preferBrowser(true);showMode(false);}
+  if(event.data.reason==='expired')void openLocal();
 });
+function connectOnEntry(){
+  try{if(sessionStorage.getItem('jarvis-browser-mode')==='true')return;}catch{}
+  void openLocal(true);
+}
+window.addEventListener('pageshow',event=>{if(event.persisted)connectOnEntry();});
+connectOnEntry();

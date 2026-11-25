@@ -95,16 +95,22 @@ sign-in.
 
 ## Local Command Center
 
-To use the local console on the main JARVIS site, open the
-[hosted Command Center](https://seth-jarvis-command-center.sa3464.chatgpt.site)
-directly in Chrome on the Windows PC running JARVIS. Choose **Use local PC** and
-allow loopback access if Chrome asks. Use **Get a pairing code** to open the local
-pairing controls in another tab, generate a code, and paste it into the local
-frame on the hosted page. Codes are single-use and expire after five minutes.
-The session ends on disconnect, server restart, or after four hours. The local
-console's **Disconnect hosted session** button also revokes access. The hosted
-page can check availability, but browser isolation keeps local chat, audio,
-Gmail, and the pairing code inside the local frame.
+Open the [hosted Command Center](https://seth-jarvis-command-center.sa3464.chatgpt.site)
+in Chrome on your Windows PC. It checks for the JARVIS connector as the page loads.
+Allow loopback access if Chrome asks, then choose **Start microphone** on the
+same page. Chrome may also ask to allow the microphone the first time.
+
+The **JARVIS Connector** startup shortcut starts the local server when you sign
+in to Windows. For a manual launch from the repository root, run
+`python -B -m jarvis.agent.main --auto-connect --live`. The `--auto-connect`
+option trusts the configured hosted page on that PC. Omit it to require a
+one-time pairing code. Omit `--live` and leave `JARVIS_DEMO` unset to use demo data.
+Use Windows Startup apps to disable the shortcut.
+
+The hosted page sees connection status. Browser isolation keeps local chat,
+audio, Gmail, and pairing credentials inside the local frame. Disconnecting
+ends that tab's session. **Disconnect hosted session** in the local console
+revokes the sessions and unused pairing codes on the running server.
 
 JARVIS can speak with ElevenLabs or Fish Audio. For Fish Audio, set
 `JARVIS_TTS_PROVIDER=fish_audio`, your Fish Audio secret `FISH_API_KEY`, and

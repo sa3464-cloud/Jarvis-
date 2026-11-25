@@ -17,14 +17,17 @@ EMBED_ACTIONS = {'chat', 'listen', 'listen/local', 'speak', 'speak/local', 'inbo
 
 
 class Pairing:
-    """An in-memory, one-use invitation and one revocable embedded session."""
+    """Short-lived invitations and revocable sessions for the local iframe."""
     code_lifetime = 5 * 60
     session_lifetime = 4 * 60 * 60
+    frame_lifetime = 2 * 60
+    session_limit = 32
 
     def __init__(self):
         self.lock = Lock()
         self.invitation = ('', 0)
-        self.session = ('', 0)
+        self.frames = {}
+        self.sessions = {}
 
     def issue(self):
         with self.lock:
@@ -43,20 +46,43 @@ class Pairing:
             if not self.matches(code, self.invitation):
                 return None
             self.invitation = ('', 0)
-            token = secrets.token_urlsafe(32)
-            self.session = (token, monotonic() + self.session_lifetime)
-            return token
+            return self._issue(self.sessions, self.session_lifetime)
+
+    def _issue(self, records, lifetime):
+        now = monotonic()
+        for token, expires in list(records.items()):
+            if expires <= now:
+                records.pop(token)
+        if len(records) >= self.session_limit:
+            records.pop(next(iter(records)))
+        token = secrets.token_urlsafe(32)
+        records[token] = now + lifetime
+        return token
+
+    def issue_frame(self):
+        with self.lock:
+            return self._issue(self.frames, self.frame_lifetime)
+
+    def connect_frame(self, ticket):
+        if not isinstance(ticket, str):
+            return None
+        with self.lock:
+            if self.frames.pop(ticket, 0) <= monotonic():
+                return None
+            return self._issue(self.sessions, self.session_lifetime)
 
     def authorized(self, token):
         with self.lock:
-            return self.matches(token, self.session)
+            return self.sessions.get(token, 0) > monotonic()
 
     def revoke(self, token=None):
         with self.lock:
             if token is None:
                 self.invitation = ('', 0)
-            if token is None or self.matches(token, self.session):
-                self.session = ('', 0)
+                self.frames.clear()
+                self.sessions.clear()
+            else:
+                self.sessions.pop(token, None)
 
 
 class LocalServer(ThreadingHTTPServer):
@@ -64,8 +90,9 @@ class LocalServer(ThreadingHTTPServer):
     # leaving requests routed unpredictably between old and new app versions.
     allow_reuse_address = False
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, auto_connect=False, **kwargs):
         self.pairing = Pairing()
+        self.auto_connect = auto_connect
         super().__init__(*args, **kwargs)
 
     def server_bind(self):
@@ -130,7 +157,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, self.console_status(self.server.csrf))
         if path == '/embedded':
             html = (UI / 'voice.html').read_text(encoding='utf-8')
-            html = html.replace('data-mode="standalone"', 'data-mode="embedded"', 1)
+            attributes = 'data-mode="embedded"'
+            # Only an iframe navigation from the configured site gets a ticket.
+            # Frame ancestors and same-origin checks keep it inside the local frame.
+            if (self.server.auto_connect and self.headers.get('Sec-Fetch-Dest') == 'iframe' and
+                    self.headers.get('Referer') == PUBLIC_ORIGIN + '/'):
+                attributes += f' data-auto-connect="{self.server.pairing.issue_frame()}"'
+            html = html.replace('data-mode="standalone"', attributes, 1)
             return self.reply(200, html.encode('utf-8'), 'text/html; charset=utf-8')
         files = {'/': (UI / 'voice.html', 'text/html; charset=utf-8'),
                  '/voice.js': (UI / 'voice.js', 'text/javascript'),
@@ -152,9 +185,11 @@ class Handler(BaseHTTPRequestHandler):
                                     'error': 'Open the local JARVIS URL or use the paired console.'})
         if embedded:
             action = path.removeprefix('/api/embed/')
-            if action == 'connect':
+            if action in ('connect', 'auto-connect'):
                 if self.headers.get('X-Jarvis-Embedded') != 'yes':
                     return self.reply(403, {'error': 'Connect from the embedded local console.'})
+                if action == 'auto-connect' and not self.server.auto_connect:
+                    return self.reply(403, {'error': 'Automatic connection is disabled on this PC.'})
             elif action not in EMBED_ACTIONS:
                 return self.reply(404, {'error': 'Not found'})
             elif not self.server.pairing.authorized(token):
@@ -166,7 +201,7 @@ class Handler(BaseHTTPRequestHandler):
                                              'Your session changed; refresh the console and try again.'})
         try:
             length = int(self.headers.get('Content-Length', '0'))
-            limit = 1024 if path == '/api/embed/connect' else voice.MAX_AUDIO
+            limit = 1024 if path in ('/api/embed/connect', '/api/embed/auto-connect') else voice.MAX_AUDIO
             if length <= 0 or length > limit:
                 return self.reply(413, {'error': 'Request size invalid; maximum 12 MB.'})
             self.connection.settimeout(120)
@@ -180,6 +215,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.server.pairing.revoke()
                 return self.reply(200, {'disconnected': True})
             if embedded:
+                if action == 'auto-connect':
+                    session = self.server.pairing.connect_frame(json.loads(body).get('ticket'))
+                    if not session:
+                        return self.reply(401, {'error': 'Automatic connection expired. Reload or use a pairing code.'})
+                    return self.reply(200, self.console_status(session))
                 if action == 'connect':
                     session = self.server.pairing.connect(json.loads(body).get('code'))
                     if not session:
@@ -227,8 +267,12 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port', type=int, default=8767)
+    parser.add_argument('--auto-connect', action='store_true', help='Trust the configured hosted Command Center on this PC.')
+    parser.add_argument('--live', action='store_true', help='Use the configured live data sources.')
     args = parser.parse_args()
-    with LocalServer(('127.0.0.1', args.port), Handler) as server:
+    if args.live:
+        data.DEMO = False
+    with LocalServer(('127.0.0.1', args.port), Handler, auto_connect=args.auto_connect) as server:
         server.csrf = secrets.token_urlsafe(32)
         print(f'JARVIS voice console: http://127.0.0.1:{server.server_port}', flush=True)
         print('Voice requests are made only after approval in the app.', flush=True)

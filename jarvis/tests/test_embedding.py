@@ -1,4 +1,5 @@
 import json
+import re
 from threading import Thread
 import unittest
 from unittest.mock import patch
@@ -53,6 +54,39 @@ class LocalEmbeddingTest(unittest.TestCase):
         embedded = self.request('/embedded')
         self.assertIn('frame-ancestors ' + main.PUBLIC_ORIGIN, embedded[1]['Content-Security-Policy'])
         self.assertIn(b'data-mode="embedded"', embedded[2])
+
+    def test_automatic_pairing_requires_local_opt_in_and_a_trusted_iframe(self):
+        trusted = {'Referer': main.PUBLIC_ORIGIN + '/', 'Sec-Fetch-Dest': 'iframe'}
+        self.assertNotIn(b'data-auto-connect=', self.request('/embedded', **trusted)[2])
+        self.server.auto_connect = True
+        self.assertNotIn(b'data-auto-connect=', self.request('/embedded', Referer=trusted['Referer'])[2])
+        self.assertNotIn(b'data-auto-connect=', self.request('/embedded', Referer='https://example.invalid/',
+                                                           **{'Sec-Fetch-Dest': 'iframe'})[2])
+        html = self.request('/embedded', **trusted)[2]
+        ticket = re.search(rb'data-auto-connect="([a-zA-Z0-9_-]+)"', html)[1].decode()
+        body = {'ticket': ticket}
+        headers = {'X-Jarvis-Embedded': 'yes'}
+        path = '/api/embed/auto-connect'
+        self.assertEqual(self.request(path, body=body, origin=main.PUBLIC_ORIGIN, **headers)[0], 403)
+        self.assertEqual(self.request(path, body=body)[0], 403)
+        ready = self.request(path, body=body, **headers)
+        self.assertEqual(ready[0], 200)
+        self.assertEqual(self.request(path, body=body, **headers)[0], 401)
+        token = json.loads(ready[2])['csrf']
+        self.assertEqual(self.request('/api/embed/chat', body={'question': 'Plan my day'}, token=token)[0], 200)
+
+    def test_reloading_one_automatic_frame_does_not_disconnect_another(self):
+        pairing = main.Pairing()
+        older = pairing.connect_frame(pairing.issue_frame())
+        newer = pairing.connect_frame(pairing.issue_frame())
+        self.assertTrue(pairing.authorized(older))
+        pairing.revoke(older)
+        self.assertFalse(pairing.authorized(older))
+        self.assertTrue(pairing.authorized(newer))
+        outstanding = pairing.issue_frame()
+        pairing.revoke()
+        self.assertFalse(pairing.authorized(newer))
+        self.assertIsNone(pairing.connect_frame(outstanding))
 
     def test_stale_local_session_is_distinct_from_wrong_origin(self):
         with patch.object(main.tools, 'execute') as execute:

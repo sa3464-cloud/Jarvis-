@@ -67,7 +67,7 @@ async function api(path, body, mime='application/json') {
     }
     const error=new Error(payload.error||`Request failed: ${response.status}`);
     error.status=response.status;
-    if(embedded&&error.status===401)lockEmbedded(error.message);
+    if(embedded&&error.status===401)lockEmbedded(error.message,'expired');
     throw error;
   }
 }
@@ -438,7 +438,7 @@ $('inbox').onclick=async()=>{
   }catch(error){state('Error',error.message);}finally{$('inbox').disabled=false;}
 };
 document.addEventListener('keydown',event=>{if(event.key==='Escape')stop();if(event.code==='Space'&&event.target===document.body){event.preventDefault();$('mic').click();}});
-function lockEmbedded(message){
+function lockEmbedded(message,reason){
   csrf=undefined;
   stop();
   $('approval').checked=false;
@@ -448,7 +448,7 @@ function lockEmbedded(message){
   $('text').value='';
   history=[];
   delete document.body.dataset.paired;
-  window.parent.postMessage({type:'jarvis-pairing',paired:false},hostedOrigin);
+  window.parent.postMessage({type:'jarvis-pairing',paired:false,reason},hostedOrigin);
   $('pairing-message').textContent=message;
 }
 
@@ -494,20 +494,39 @@ function displayIssuedCode(code,message){
 }
 
 if(embedded){
+  function showPairingFallback(message){
+    $('pairing-message').textContent=message;
+    $('pairing-fallback').hidden=false;
+    window.parent.postMessage({type:'jarvis-pairing-required'},hostedOrigin);
+  }
+  async function connectEmbedded(path, credentials){
+    const response=await fetch('/api/embed/'+path,{method:'POST',mode:'same-origin',
+      headers:{'Content-Type':'application/json','X-Jarvis-Embedded':'yes'},
+      body:JSON.stringify(credentials)});
+    const result=await response.json();
+    if(!response.ok)throw Error(result.error||'Pairing failed.');
+    showConsole(result);
+    document.body.dataset.paired='';
+    window.parent.postMessage({type:'jarvis-pairing',paired:true},hostedOrigin);
+    $('pairing-message').textContent='';
+  }
+  let automaticTicket=document.body.dataset.autoConnect;
+  delete document.body.dataset.autoConnect;
+  if(automaticTicket){
+    window.addEventListener('message',event=>{
+      if(event.origin!==hostedOrigin||event.source!==window.parent||event.data?.type!=='jarvis-connect'||!automaticTicket)return;
+      const ticket=automaticTicket;
+      automaticTicket=null;
+      connectEmbedded('auto-connect',{ticket}).catch(error=>showPairingFallback(error.message));
+    });
+  }else showPairingFallback('Use a pairing code to connect.');
+
   $('pairing-form').onsubmit=async event=>{
     event.preventDefault();
     $('pair-submit').disabled=true;
     $('pairing-message').textContent='Pairing with the local server…';
     try{
-      const response=await fetch('/api/embed/connect',{method:'POST',
-        headers:{'Content-Type':'application/json','X-Jarvis-Embedded':'yes'},
-        body:JSON.stringify({code:$('pairing-code').value.trim()})});
-      const result=await response.json();
-      if(!response.ok)throw Error(result.error||'Pairing failed.');
-      showConsole(result);
-      document.body.dataset.paired='';
-      window.parent.postMessage({type:'jarvis-pairing',paired:true},hostedOrigin);
-      $('pairing-message').textContent='';
+      await connectEmbedded('connect',{code:$('pairing-code').value.trim()});
       $('text').focus();
     }catch(error){
       $('pairing-message').textContent=error.message;
@@ -519,9 +538,9 @@ if(embedded){
   $('embed-disconnect').onclick=async()=>{
     try{
       await api('/api/disconnect','{}');
-      lockEmbedded('Disconnected. Pair again to use the local console.');
+      lockEmbedded('Disconnected.','disconnected');
     }catch(error){
-      lockEmbedded(`Local controls closed. ${error.message}`);
+      lockEmbedded(`Local controls closed. ${error.message}`,'disconnected');
     }
   };
 }else{

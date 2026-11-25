@@ -19,11 +19,11 @@
         <h1 id="local-mode-title">JARVIS on this PC</h1>
         <p id="local-status" role="status">Start JARVIS on this PC and connect to its local server.</p>
         <div class="actions">
-          <a href="http://127.0.0.1:8767/#pairing-tools" target="_blank" rel="noopener noreferrer">Get a pairing code</a>
+          <a id="local-code-link" href="http://127.0.0.1:8767/#pairing-tools" target="_blank" rel="noopener noreferrer" hidden>Get a pairing code</a>
           <button type="button" id="local-retry" class="quiet" hidden>Retry connection</button>
         </div>
       </header>
-      <iframe id="local-frame" title="Local JARVIS Command Center" allow="microphone; camera; autoplay" hidden></iframe>
+      <iframe id="local-frame" title="JARVIS voice and conversation" referrerpolicy="origin" allow="microphone; camera; autoplay; loopback-network" hidden></iframe>
     </section>
     <div class="dashboard" id="browser-mode" data-dashboard data-thread="messages" data-input="question">
       <aside class="instrument-rail" aria-label="Dashboard panels">
@@ -99,7 +99,7 @@
       </section>
       <section class="panel dock" id="connections" aria-labelledby="connection-title">
         <h2 id="connection-title">Connections</h2>
-        <div><p>Pair your Windows PC to use the microphone, hear spoken replies, and read Gmail from the Command Center.</p><div class="actions"><button type="button" id="local-connect">Use local PC</button><a href="https://github.com/sa3464-cloud/Jarvis-#readme">Windows setup</a></div></div>
+        <div><p id="local-connection-note" role="status">Connect to your Windows PC for voice and Gmail on this page.</p><div class="actions"><button type="button" id="local-connect">Use local PC</button><a href="https://github.com/sa3464-cloud/Jarvis-#readme">Windows setup</a></div></div>
       </section>
     </div>
   </main>
