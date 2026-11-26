@@ -53,7 +53,7 @@ class WindowsMicrophoneTest(unittest.TestCase):
                     audio = voice.pcm_wave(b'\x00\x04' * 8000)
                     self.assertEqual(voice.listen_locally(audio, approved=True, wake_sensitivity=wake_sensitivity), '')
                     self.assertEqual(recognize.call_count, 1)
-                    self.assertLessEqual(recognize.call_args.kwargs['timeout'], 6)
+                    self.assertLessEqual(recognize.call_args.kwargs['timeout'], 12 if wake_sensitivity else 6)
 
     def test_fallback_passes_a_finite_wav_with_trailing_silence(self):
         samples = b'\x00\x04' * 16

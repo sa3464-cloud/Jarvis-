@@ -300,8 +300,9 @@ try {
     $engine.LoadGrammar([System.Speech.Recognition.Grammar]::new($builder))'''
         script = script.replace('$engine.LoadGrammar([System.Speech.Recognition.DictationGrammar]::new())', grammar)
         script = script.replace('if ($result)', f'if ($result -and $result.Confidence -ge {threshold:.3f})')
+        script = script.replace('FromMilliseconds(1200)', 'FromMilliseconds(2500)')
         try:
-            return _windows_speech(script, recording, unavailable, timeout=budget).decode('utf-8').strip()
+            return _windows_speech(script, recording, unavailable, timeout=12).decode('utf-8').strip()
         except WindowsSpeechError as error:
             if error.reason == 'timeout':
                 return ''
