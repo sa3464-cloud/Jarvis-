@@ -1,14 +1,16 @@
-const SILENCE_MS = 850;
 const PRE_ROLL_MS = 350;
 const TAIL_MS = 450;
 const MIN_SPEECH_MS = 160;
-const PLAYBACK_COOLDOWN_MS = 650;
+const PLAYBACK_COOLDOWN_MS = 350;
 const MAX_TURN_MS = 30000;
 const $ = id => document.getElementById(id);
 const embedded = document.body.dataset.mode === 'embedded';
 const hostedOrigin = 'https://seth-jarvis-command-center.sa3464.chatgpt.site';
 let csrf, enabled = false, stream, context, captureNode, speech, speechURL;
-let finishCapture;
+let finishCapture, retryMicrophone;
+let transcriptProvider = 'Windows';
+let wakeWord = false, activeUntil = 0;
+const FOLLOW_UP_MS = 25000;
 let busy = false, generation = 0;
 let cloudConfigured = true, cloudRecognition = true;
 let history = [];
@@ -122,8 +124,11 @@ function deaf() {
   if(context) context.close().catch(()=>{}); context=null;
   for(const bar of $('bars').children) bar.style.removeProperty('height');
   setHudMeter('mic',0);
+  $('microphone-diagnostics').textContent='Microphone off';
 }
 function stop() {
+  clearTimeout(retryMicrophone);
+  activeUntil=0;
   generation++; enabled=false; deaf(); busy=false;
   if(speech) {speech.pause();speech.src='';speech=null;}
   if(speechURL) URL.revokeObjectURL(speechURL);speechURL=null;
@@ -150,17 +155,19 @@ async function say(text) {
     speechURL=URL.createObjectURL(blob);
     const playback=new Audio(speechURL);
     speech=playback;
+    let bargeCapture;
     await new Promise((resolve,reject)=>{
       playback.onplaying=()=>{
         if(ticket!==generation)return;
-        state('Speaking',localVoice?`${notice?notice+' ':''}Using the built-in Windows voice.`:'Microphone is off while JARVIS speaks.');
+        if(enabled&&!bargeCapture)bargeCapture=record(undefined,true).catch(()=>{});
+        state('Speaking',localVoice?`${notice?notice+' ':''}Using the built-in Windows voice.`:'Speak to interrupt when echo cancellation is available.');
       };
       playback.onwaiting=()=>{
         if(ticket===generation)state('Thinking','Waiting for audio playback…');
       };
       playback.onpause=()=>{
         if(playback.ended)return;
-        if(ticket===generation)state('Idle','Playback paused.');
+        if(ticket===generation&&!finishCapture)state('Idle','Playback paused.');
         resolve();
       };
       playback.ontimeupdate=()=>{
@@ -176,6 +183,10 @@ async function say(text) {
     URL.revokeObjectURL(speechURL);speechURL=null;speech=null;busy=false;
     state('Idle',localVoice?'Spoken with the built-in Windows voice.':'Speech finished.');
     if(enabled){
+      activeUntil=performance.now()+FOLLOW_UP_MS;
+      if(bargeCapture)await bargeCapture;
+      if(ticket!==generation||!enabled)return;
+      if(finishCapture){state('Listening','Ready for your follow-up.');return;}
       // Let speaker echo decay before opening the microphone for the next turn.
       await new Promise(resolve=>setTimeout(resolve,PLAYBACK_COOLDOWN_MS));
       if(ticket===generation&&enabled)await record();
@@ -184,7 +195,7 @@ async function say(text) {
     if(ticket!==generation)return;
     if(speechURL)URL.revokeObjectURL(speechURL);
     speechURL=null;speech=null;busy=false;
-    if(enabled)await resumeListening(error.message);
+    if(enabled){deaf();await resumeListening(error.message);}
     else state('Error',error.message);
   }
 }
@@ -196,14 +207,15 @@ async function hear(transcript) {
     return;
   }
   if(!words){
-    await record('I didn’t catch that. Try again.');
+    await record('I didn’t catch that. Could you repeat what you said?');
     return;
   }
   if(transcript.length>4000){
     await record('That recording was too long. Try a shorter question.');
     return;
   }
-  $('caption').textContent=`Heard: ${transcript}`;
+  $('caption').textContent=`Heard (${transcriptProvider}): ${transcript}`;
+  activeUntil=performance.now()+FOLLOW_UP_MS;
   await ask(transcript);
 }
 async function speechWav(chunks, startFrame, endFrame, inputRate) {
@@ -231,7 +243,7 @@ async function speechWav(chunks, startFrame, endFrame, inputRate) {
   const dc=pcm.reduce((sum,sample)=>sum+sample,0)/frames;
   let peak=0;
   for(const sample of pcm)peak=Math.max(peak,Math.abs(sample-dc));
-  const gain=peak>0?Math.min(12,Math.max(1,.45/peak)):1;
+  const gain=peak>0?Math.min(3,.8/peak):1;
   const buffer=new ArrayBuffer(44+frames*2);
   const view=new DataView(buffer);
   const bytes=new Uint8Array(buffer);
@@ -254,20 +266,51 @@ async function speechWav(chunks, startFrame, endFrame, inputRate) {
   }
   return buffer;
 }
-async function record(message = 'Speak naturally. JARVIS answers after you pause.') {
-  approved(); if(busy)return;
+async function updateMicrophones() {
+  if(!navigator.mediaDevices?.enumerateDevices)return;
+  const select=$('microphone-device');
+  const selected=select.value;
+  const devices=(await navigator.mediaDevices.enumerateDevices()).filter(device=>device.kind==='audioinput'&&device.deviceId!=='default'&&device.deviceId);
+  select.replaceChildren(new Option('System default',''));
+  for(const [index,device] of devices.entries())select.add(new Option(device.label||`Microphone ${index+1}`,device.deviceId));
+  if(selected&&!devices.some(device=>device.deviceId===selected))select.add(new Option('Selected microphone (disconnected)',selected));
+  select.value=selected;
+}
+function reconnectMicrophone(ticket, message) {
+  if(ticket!==generation||!enabled)return;
+  const retryTicket=++generation;
+  deaf();busy=false;
+  state('Standby',message+' Reconnecting automatically.');
+  clearTimeout(retryMicrophone);
+  retryMicrophone=setTimeout(async()=>{
+    if(retryTicket!==generation||!enabled)return;
+    try{await record('Microphone reconnected.');}
+    catch(error){reconnectMicrophone(retryTicket,error.message);}
+  },2000);
+}
+async function record(message = 'Speak naturally. JARVIS answers after you pause.', duringPlayback=false) {
+  approved(); if(busy&&!duringPlayback)return;
   if(!navigator.mediaDevices?.getUserMedia||!window.AudioWorkletNode) throw Error('This browser cannot record audio. Try a current Chrome, Edge, Firefox, or Safari.');
   const captureTicket=generation;
+  const device=$('microphone-device').value;
   const captured=await navigator.mediaDevices.getUserMedia({
-    audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true},
+    audio:{channelCount:1,echoCancellation:true,noiseSuppression:$('microphone-suppression').checked,autoGainControl:true,
+           ...(device?{deviceId:{exact:device}}:{})},
   });
   if(!enabled||captureTicket!==generation){captured.getTracks().forEach(track=>track.stop());return;}
+  if(duringPlayback&&(!speech||speech.ended||captured.getAudioTracks()[0]?.getSettings().echoCancellation!==true)){
+    captured.getTracks().forEach(track=>track.stop());return;
+  }
   stream=captured;
+  void updateMicrophones().catch(()=>{});
   for(const track of captured.getAudioTracks()){
     track.onended=()=>{
       if(captureTicket!==generation)return;
-      stop();
-      state('Error','The microphone disconnected. Reconnect it and start again.');
+      if(speech&&!speech.ended){
+        deaf();
+        return;
+      }
+      reconnectMicrophone(captureTicket,'Microphone disconnected.');
     };
   }
   const captureContext=new AudioContext();
@@ -287,7 +330,7 @@ async function record(message = 'Speak naturally. JARVIS answers after you pause
   const maxFrames=framesFor(MAX_TURN_MS);
   const minVoiceFrames=framesFor(MIN_SPEECH_MS);
   let capturedFrames=0, firstFrame=0;
-  let speechStart=null;
+  let speechStart=null, needsWake=false;
   let lastSignalFrame=0;
   let candidateStart=null, voicedFrames=0, lastVoiceFrame=0, noiseFloor=.003;
 
@@ -297,25 +340,45 @@ async function record(message = 'Speak naturally. JARVIS answers after you pause
       state('Listening','No speech detected yet. The microphone is still listening.');
       return;
     }
+    if(speechStart===null&&wakeWord&&performance.now()>=activeUntil)needsWake=true;
     const ticket=++generation;
-    deaf();busy=true;state('Thinking','Transcribing your recording…');$('caption').textContent='Microphone paused during transcription.';
+    if(speech){
+      speech.pause();speech=null;
+      if(speechURL)URL.revokeObjectURL(speechURL);
+      speechURL=null;setHudMeter('playback',0);
+    }
+    deaf();busy=true;state('Thinking',needsWake?'Checking wake word locally…':'Transcribing your recording…');$('caption').textContent='Microphone paused during transcription.';
     $('mic').textContent='Transcribing…';
     try {
       const start=speechStart===null?firstFrame:Math.max(firstFrame,speechStart-framesFor(PRE_ROLL_MS));
       const end=Math.min(start+maxFrames,manual?capturedFrames:lastVoiceFrame+framesFor(TAIL_MS),capturedFrames);
       const audio=await speechWav(chunks,start-firstFrame,end-firstFrame,sampleRate);
       if(ticket!==generation)return;
-      let transcript='';
+      if(needsWake){
+        const response=await api('/api/listen/wake',audio,'audio/wav');
+        const {detected}=await response.json();
+        if(ticket!==generation)return;
+        busy=false;
+        if(detected)activeUntil=performance.now()+FOLLOW_UP_MS;
+        await record(detected?'Listening. What can I do for you?':undefined);
+        return;
+      }
+      let transcript='', uncertain=false;
       if(cloudRecognition){
         try {
           const response=await api('/api/listen',audio,'audio/wav');
-          transcript=(await response.json()).text.trim();
+          const result=await response.json();
+          transcript=result.text.trim();
+          uncertain=result.uncertain;
+          transcriptProvider=result.provider||'Cloud';
+
         } catch(error) {
           if(error.status!==402&&error.status!==502)throw error;
           cloudRecognition=false;
         }
       }
-      if(!transcript){
+      if(!transcript&&!uncertain){
+        transcriptProvider='Windows';
         if(ticket!==generation)return;
         state('Thinking','Transcribing with Windows…');
         $('caption').textContent='Waiting for Windows transcript…';
@@ -339,12 +402,33 @@ async function record(message = 'Speak naturally. JARVIS answers after you pause
     const level=Math.sqrt(Math.max(0,squares/chunk.length-(sum/chunk.length)**2));
     if(level>=.0008)lastSignalFrame=capturedFrames;
     setHudMeter('mic',level*5);
-    for(const [i,bar] of [...$('bars').children].entries())bar.style.height=`${3+Math.min(22,level*240)*(0.5+0.5*Math.sin(i))}px`;
-    if(level>Math.max(.005,noiseFloor*2.8)){
+    const bars=$('bars').children;
+    for(let i=0;i<bars.length;i++){
+      let peak=0;
+      for(let j=Math.floor(i*chunk.length/bars.length);j<Math.floor((i+1)*chunk.length/bars.length);j++){
+        peak=Math.max(peak,Math.abs(chunk[j]));
+      }
+      bars[i].style.height=`${3+Math.min(22,peak*180)}px`;
+    }
+    const db=value=>Math.round(20*Math.log10(Math.max(.00001,value)));
+    $('microphone-diagnostics').textContent=`Input ${db(level)} dBFS · Noise ${db(noiseFloor)} dBFS · ${transcriptProvider}`;
+    const playing=Boolean(speech&&!speech.paused&&!speech.ended);
+    const standby=wakeWord&&!playing&&performance.now()>=activeUntil;
+    if(standby&&speechStart===null&&$('state').textContent==='Listening')state('Standby','Say “Jarvis” to start a conversation.');
+    const sensitivity=Number($('microphone-sensitivity').value)/100;
+    const threshold=Math.max(playing ? .012 : .0018,noiseFloor*(3.4-1.5*sensitivity)*(speechStart===null?1:.72));
+    if(level>threshold){
       candidateStart??=chunkStart;
       voicedFrames+=chunk.length;
       lastVoiceFrame=capturedFrames;
-      if(voicedFrames>=minVoiceFrames)speechStart??=candidateStart;
+      if(voicedFrames>=(playing?framesFor(280):minVoiceFrames)){
+        if(speechStart===null)needsWake=standby;
+        speechStart??=candidateStart;
+        if(playing){
+          speech.pause();
+          state('Listening','Interrupted. Listening to you.');
+        }
+      }
     }else{
       noiseFloor+=.06*(level-noiseFloor);
       if(speechStart===null&&capturedFrames-lastVoiceFrame>=framesFor(90)){
@@ -352,24 +436,37 @@ async function record(message = 'Speak naturally. JARVIS answers after you pause
         voicedFrames=0;
       }
     }
+    const pauseMs=needsWake?600:Number($('microphone-pause').value);
     if(speechStart===null){
       const keepFrom=Math.min(capturedFrames-framesFor(1800),(candidateStart??capturedFrames)-framesFor(PRE_ROLL_MS));
       while(chunks.length&&firstFrame+chunks[0].length<=keepFrom)firstFrame+=chunks.shift().length;
-    }else if(capturedFrames-speechStart>=maxFrames-framesFor(PRE_ROLL_MS)||capturedFrames-lastVoiceFrame>=framesFor(SILENCE_MS)){
+    }else if(capturedFrames-speechStart>=maxFrames-framesFor(PRE_ROLL_MS)||capturedFrames-lastVoiceFrame>=framesFor(pauseMs+Math.min(350,120*(lastVoiceFrame-speechStart)/sampleRate))){
       void finishRecording();
     }
   };
   node.onprocessorerror=()=>{
     if(captureTicket!==generation)return;
-    stop();state('Error','Microphone recording failed.');
+    if(speech&&!speech.ended)deaf();
+    else reconnectMicrophone(captureTicket,'Microphone recording failed.');
   };
   captureContext.createMediaStreamSource(captured).connect(node);
   node.connect(captureContext.destination);
   finishCapture=finishRecording;
   $('mic').textContent='Finish recording';
-  state('Listening',message);
+  if(!duringPlayback||!speech||speech.paused){
+    if(wakeWord&&performance.now()>=activeUntil)state('Standby','Say “Jarvis” to start a conversation.');
+    else state('Listening',message);
+  }
   $('caption').textContent='Hands-free microphone on. Say “stop listening” to stop.';
 }
+$('microphone-device').onchange=async()=>{
+  if(!enabled||busy||speech)return;
+  const ticket=++generation;
+  deaf();
+  try{await record('Using the selected microphone.');}
+  catch(error){reconnectMicrophone(ticket,error.message);}
+};
+$('microphone-suppression').onchange=$('microphone-device').onchange;
 $('mic').onclick=async()=>{
   if(finishCapture){await finishCapture(true);return;}
   if(busy)return;
@@ -443,6 +540,7 @@ document.querySelectorAll('button[data-question]').forEach(button=>{
 
 function showConsole(status, announce=true){
   csrf=status.csrf;
+  wakeWord=Boolean(status.wake_word);
   if(announce)cloudRecognition=cloudConfigured=status.voice_configured;
   $('connection-state').textContent='Online';
   $('connection-state').setAttribute('data-online','');

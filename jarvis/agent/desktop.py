@@ -9,19 +9,22 @@ from queue import Empty, Queue
 from threading import Thread
 import time
 import tkinter as tk
+from tkinter import ttk
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, ProxyHandler, HTTPRedirectHandler, build_opener
 import wave
 
 from . import tools, voice
-from .desktop_audio import MIC_RATE, Microphone, Playback, microphone_signal
+from .desktop_audio import MIC_RATE, Microphone, Playback, input_devices
+from .listening import BLOCK, Listening
 from .desktop_hud import (TRANSPARENT, PANEL, INK, MUTED, WIDTH, HEIGHT, CORE_Y,
                           PANEL_W, PANEL_Y, PANEL_H, Hologram, Spring, core_x, layout_target)
 
 
 TITLE = 'JARVIS Floating Core'
 SHORTCUT = 'Ctrl+Alt+J'
-END_OF_SPEECH_SECONDS = .85
+FOLLOW_UP_SECONDS = 25
+MIC_RETRY_SECONDS = 2
 TASKS = {
     'read_inbox': ('Reading unread Gmail', 'Complete Google sign-in if your browser opens.'),
     'open_website': ('Opening website', 'Handing the link to your default browser.'),
@@ -104,14 +107,14 @@ class Console:
             self.status()
         if self.cloud_recognition:
             try:
-                transcript = self.post('/api/listen', audio, approved=True)['text'].strip()
-                if transcript:
-                    return transcript
+                result = self.post('/api/listen', audio, approved=True)
+                if result.get('uncertain') or result['text'].strip():
+                    return result
             except ConsoleError as error:
                 if error.code not in (402, 502):
                     raise
                 self.cloud_recognition = False
-        return self.post('/api/listen/local', audio, approved=True)['text']
+        return {**self.post('/api/listen/local', audio, approved=True), 'provider': 'Windows'}
 
     def speech(self, text):
         return self.post('/api/speak', {'text': text, 'format': 'wav'}, approved=True)
@@ -166,6 +169,29 @@ class Desktop:
         self.last_frame = time.monotonic()
         self.window_position = None
         self.closed = False
+        config = voice.settings()
+        self.wake_enabled = config.get('JARVIS_WAKE_WORD', '0') == '1'
+        self.active_until = 0.
+        self.retry_mic_at = 0.
+        self.speech_settings = []
+        for key, default, low, high in (
+            ('JARVIS_MIC_SENSITIVITY', .55, 0., 1.),
+            ('JARVIS_NOISE_SUPPRESSION', .65, 0., 1.),
+            ('JARVIS_SILENCE_SECONDS', .95, .55, 1.8),
+            ('JARVIS_WAKE_SENSITIVITY', .55, 0., 1.),
+        ):
+            try:
+                value = float(config.get(key, default))
+            except ValueError:
+                value = default
+            self.speech_settings.append(max(low, min(high, value)))
+        self.devices = dict(input_devices()) if mic_factory is Microphone else {'Default microphone': None}
+        preferred = config.get('JARVIS_MIC_DEVICE')
+        selected = next((label for label, device in self.devices.items()
+                         if label == preferred or str(device) == preferred), next(iter(self.devices)))
+        self.device = tk.StringVar(value=selected)
+        self.diagnostics = tk.StringVar(value='Microphone muted')
+        self.transcription = 'Waiting for speech'
 
         root.withdraw()
         root.title(TITLE)
@@ -204,6 +230,10 @@ class Desktop:
         self.place()
         if hotkey:
             Thread(target=hotkey_listener, args=(self.events,), daemon=True).start()
+        if config.get('JARVIS_MIC_AUTOSTART') == '1':
+            self.wake_enabled = True
+            self.voice_enabled.set(True)
+            self.start_listening()
         self.tick()
 
     def work_area(self, x, y):
@@ -251,9 +281,13 @@ class Desktop:
             tk.Button(controls, text=label, command=action, bg='#124258', fg=INK,
                       activebackground='#1b556a', activeforeground=INK,
                       relief='flat', padx=9).pack(side='right', padx=(5, 0))
-        tk.Label(panel, text='JARVIS answers after you pause. Say “stop listening” to stop.',
-                 bg=PANEL, fg=MUTED, anchor='w', justify='left', wraplength=PANEL_W - 30,
-                 font=('Segoe UI', 8)).pack(fill='x', pady=(4, 0))
+        microphone = ttk.Combobox(panel, textvariable=self.device, values=list(self.devices), state='readonly',
+                                  postcommand=self.refresh_microphones)
+        self.microphone_selector = microphone
+        microphone.pack(fill='x', pady=(4, 0))
+        microphone.bind('<<ComboboxSelected>>', self.select_microphone)
+        tk.Label(panel, textvariable=self.diagnostics, bg=PANEL, fg=MUTED, anchor='w',
+                 font=('Segoe UI', 8)).pack(fill='x')
         return panel
 
     def display(self, text):
@@ -343,9 +377,10 @@ class Desktop:
     def stop_voice(self):
         self.job += 1
         self.voice_enabled.set(False)
-        if self.mic:
-            self.mic.close()
-            self.mic = None
+        self.retry_mic_at = 0.
+        self.active_until = 0.
+        self.close_microphone()
+        self.diagnostics.set('Microphone muted')
         if self.playback:
             self.playback.close()
             self.playback = None
@@ -362,7 +397,7 @@ class Desktop:
         if self.compact:
             self.compact = False
             return
-        if self.status == 'listening':
+        if self.status in ('listening', 'standby'):
             self.finish_listening()
             return
         if self.status in ('thinking', 'executing'):
@@ -376,63 +411,122 @@ class Desktop:
             return
         self.start_listening()
 
+    def close_microphone(self):
+        if self.mic:
+            self.mic.close()
+            self.mic = None
+        self.capture = None
+        self.pending_pcm = bytearray()
+
+    def select_microphone(self, event=None):
+        if self.mic or self.retry_mic_at:
+            self.close_microphone()
+            self.start_listening()
+
+    def refresh_microphones(self):
+        if self.mic_factory is Microphone:
+            devices = dict(input_devices())
+            selected = self.device.get()
+            if selected not in devices:
+                devices[selected] = self.devices.get(selected)
+            self.devices = devices
+            self.microphone_selector.configure(values=list(devices))
+
     def start_listening(self):
-        try:
-            self.mic = self.mic_factory()
-        except (RuntimeError, OSError) as error:
-            self.failed(str(error))
+        if self.mic:
             return
-        self.samples = bytearray()
-        self.last_sound = time.monotonic()
-        self.speech_start = None
-        self.last_voice_byte = self.candidate_start = self.voiced_bytes = 0
-        self.noise_floor = .003
-        self.change_state('listening', 'Hands-free listening')
+        try:
+            if self.mic_factory is Microphone:
+                devices = dict(input_devices())
+                self.devices.update(devices)
+                label = self.device.get()
+                if label not in devices:
+                    matches = [name for name in devices if name.rsplit(' [', 1)[0] == label.rsplit(' [', 1)[0]]
+                    if len(matches) != 1:
+                        raise RuntimeError('Selected microphone is disconnected.')
+                    label = matches[0]
+                    self.device.set(label)
+                self.mic = self.mic_factory(devices[label])
+            else:
+                self.mic = self.mic_factory()
+        except (RuntimeError, OSError) as error:
+            self.microphone_failed(error)
+            return
+        self.retry_mic_at = 0.
+        self.capture = Listening(*self.speech_settings[:3])
+        self.pending_pcm = bytearray()
+        self.last_input_at = time.monotonic()
+        self.update_listening_state()
+
+    def update_listening_state(self):
+        if self.playback:
+            self.change_state('speaking')
+        elif self.wake_enabled and time.monotonic() >= self.active_until:
+            self.change_state('standby', 'Standby · Say “Jarvis”')
+        else:
+            self.change_state('listening', 'Hands-free listening')
+
+    def microphone_failed(self, error):
+        self.close_microphone()
+        self.retry_mic_at = time.monotonic() + MIC_RETRY_SECONDS
+        self.diagnostics.set('Microphone unavailable · Reconnecting')
+        if not self.playback:
+            self.change_state('standby', 'Reconnecting microphone')
+            self.expand()
+            self.display(str(error))
 
     def read_microphone(self, now):
         pcm = self.mic.read()
         if pcm:
-            chunk_start = len(self.samples)
-            self.samples.extend(pcm)
-            self.waveform, self.energy = microphone_signal(pcm)
-            if self.energy >= max(.005, self.noise_floor * 2.8):
-                if not self.voiced_bytes:
-                    self.candidate_start = chunk_start
-                self.last_sound, self.last_voice_byte = now, len(self.samples)
-                self.voiced_bytes += min(len(pcm), MIC_RATE * 2 // 25)
-                if self.speech_start is None and self.voiced_bytes >= MIC_RATE * 2 * .16:
-                    self.speech_start = self.candidate_start
-            else:
-                self.noise_floor += .06 * (self.energy - self.noise_floor)
-                if self.speech_start is None and now - self.last_sound >= .09:
-                    self.voiced_bytes = 0
-        if self.speech_start is None:
-            before = self.candidate_start if self.voiced_bytes else len(self.samples)
-            discard = max(0, before - int(.35 * MIC_RATE) * 2)
-            del self.samples[:discard]
-            self.candidate_start = max(0, self.candidate_start - discard)
-            self.last_voice_byte = max(0, self.last_voice_byte - discard)
-        elif (now - self.last_sound >= END_OF_SPEECH_SECONDS or
-              len(self.samples) - self.speech_start >= 29.5 * MIC_RATE * 2):
-            self.finish_listening()
+            self.last_input_at = now
+        elif now - self.last_input_at >= MIC_RETRY_SECONDS:
+            self.microphone_failed('No input from the microphone.')
+            return
+        if not self.playback and self.capture.candidate is None and self.status == 'listening':
+            if self.wake_enabled and now >= self.active_until:
+                self.update_listening_state()
+        self.capture.silence = .60 if self.status == 'standby' else self.speech_settings[2]
+        self.pending_pcm.extend(pcm)
+        while len(self.pending_pcm) >= BLOCK * 2:
+            chunk = bytes(self.pending_pcm[:BLOCK * 2])
+            del self.pending_pcm[:BLOCK * 2]
+            echo_found = False
+            if self.playback:
+                chunk, echo_found = self.playback.cancel_echo(chunk)
+            done = self.capture.push(chunk, playback=bool(self.playback), echo_found=echo_found)
+            self.waveform, self.energy = self.capture.waveform, self.capture.level
+            noise = 20 * math.log10(max(self.capture.noise, .00001))
+            level = 20 * math.log10(max(self.energy, .00001))
+            self.diagnostics.set(f'Input {level:.0f} dBFS  ·  Noise {noise:.0f} dBFS  ·  {self.transcription}')
+            if self.playback and self.capture.start is not None:
+                self.playback.close()
+                self.playback = None
+                self.progress = 0.
+                self.active_until = now + FOLLOW_UP_SECONDS
+                self.update_listening_state()
+            if done:
+                self.finish_listening()
+                break
 
     def finish_listening(self):
-        if self.speech_start is None:
+        if not self.capture or self.capture.start is None:
             self.expand()
             self.display('No speech detected yet. JARVIS is still listening.')
             return
-        self.samples.extend(self.mic.finish())
-        self.mic = None
-        self.waveform, self.energy = (), 0.0
-        start = max(0, self.speech_start - int(.35 * MIC_RATE) * 2)
-        end = min(self.last_voice_byte + int(.45 * MIC_RATE) * 2, start + 30 * MIC_RATE * 2)
-        wav = voice.pcm_wave(bytes(self.samples[start:end]))
-        self.samples.clear()
+        wake = self.status == 'standby'
+        wav = voice.pcm_wave(self.capture.take())
+        self.close_microphone()
+        self.waveform, self.energy = (), 0.
         self.job += 1
-        self.change_state('thinking', 'Transcribing your recording')
-        self.expand()
-        self.display('Transcribing your microphone recording…')
-        self.run('transcript', lambda: self.console.transcribe(wav))
+        if wake:
+            self.change_state('standby', 'Checking wake word locally')
+            self.run('wake', lambda: voice.listen_locally(
+                wav, approved=True, wake_sensitivity=self.speech_settings[3]))
+        else:
+            self.change_state('thinking', 'Transcribing your recording')
+            self.expand()
+            self.display('Transcribing your microphone recording…')
+            self.run('transcript', lambda: self.console.transcribe(wav))
 
     def send_entry(self):
         self.submit(self.entry.get())
@@ -448,10 +542,8 @@ class Desktop:
         except ValueError as error:
             self.failed(str(error))
             return
-        if self.mic:
-            self.mic.close()
-            self.mic = None
-            self.samples.clear()
+        self.retry_mic_at = 0.
+        self.close_microphone()
         self.job += 1
         self.entry.delete(0, 'end')
         self.question = question
@@ -501,10 +593,11 @@ class Desktop:
         if not self.voice_enabled.get() or self.hidden:
             return
         if not words:
-            self.display('I didn’t catch that. Try again.')
+            self.display('I didn’t catch that. Could you repeat what you said?')
         elif len(text) > 4000:
             self.display('That recording was too long. Try a shorter question.')
         else:
+            self.active_until = time.monotonic() + FOLLOW_UP_SECONDS
             self.submit(text)
             return
         self.start_listening()
@@ -523,8 +616,16 @@ class Desktop:
                 continue
             elif kind == 'failed':
                 self.failed(result)
+            elif kind == 'wake':
+                if result and self.voice_enabled.get():
+                    self.active_until = time.monotonic() + FOLLOW_UP_SECONDS
+                    self.display('Listening. What can I do for you?')
+                self.start_listening()
             elif kind == 'transcript':
-                self.hear(result)
+                self.transcription = result.get('provider', 'Transcript')
+                if result.get('uncertain'):
+                    self.transcription += ' · unclear'
+                self.hear(result['text'])
             elif kind == 'answer':
                 text = result['answer']
                 if not result.get('model_missing'):
@@ -540,6 +641,7 @@ class Desktop:
                 try:
                     self.playback = self.playback_factory(result)
                     self.change_state('speaking')
+                    self.start_listening()
                 except (RuntimeError, OSError, ValueError, wave.Error) as error:
                     self.failed(f'Audio unavailable · {error}')
             elif kind == 'audio':
@@ -552,18 +654,27 @@ class Desktop:
         elapsed = min(.05, now - self.last_frame)
         self.last_frame = now
         self.process_events()
-        try:
-            if self.mic:
+        if self.mic:
+            try:
                 self.read_microphone(now)
-            if self.playback:
+            except (RuntimeError, OSError, ValueError) as error:
+                self.microphone_failed(error)
+        if self.playback:
+            try:
                 if self.playback.done:
                     self.playback.close()
                     self.playback = None
-                    self.completed()
+                    self.progress = 0.
+                    self.active_until = now + FOLLOW_UP_SECONDS
+                    self.update_listening_state()
                 else:
-                    self.progress, self.waveform, self.energy = self.playback.snapshot()
-        except (RuntimeError, OSError, ValueError) as error:
-            self.failed(str(error))
+                    self.progress, peaks, energy = self.playback.snapshot()
+                    if not self.mic or self.capture.candidate is None:
+                        self.waveform, self.energy = peaks, energy
+            except (RuntimeError, OSError, ValueError) as error:
+                self.failed(str(error))
+        if self.retry_mic_at and now >= self.retry_mic_at and self.voice_enabled.get() and not self.hidden:
+            self.start_listening()
         if self.status == 'complete' and now >= self.complete_until:
             self.change_state('idle')
             if self.voice_enabled.get() and not self.hidden:

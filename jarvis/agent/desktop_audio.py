@@ -31,6 +31,22 @@ class MediaTime(ct.Structure):
     _fields_ = [('kind', ct.c_uint32), ('value', ct.c_uint32), ('unused', ct.c_uint32)]
 
 
+class InputCaps(ct.Structure):
+    _fields_ = [('manufacturer', ct.c_uint16), ('product', ct.c_uint16),
+                ('version', ct.c_uint32), ('name', ct.c_wchar * 32),
+                ('formats', ct.c_uint32), ('channels', ct.c_uint16), ('reserved', ct.c_uint16)]
+
+
+def input_devices():
+    api = ct.WinDLL('winmm')
+    devices = [('Default microphone', None)]
+    for index in range(api.waveInGetNumDevs()):
+        caps = InputCaps()
+        if api.waveInGetDevCapsW(ct.c_size_t(index), ct.byref(caps), ct.sizeof(caps)) == 0:
+            devices.append((f'{caps.name} [{index}]', index))
+    return devices
+
+
 def _format(rate, channels=1):
     return WaveFormat(1, channels, rate, rate * channels * 2, channels * 2, 16, 0)
 
@@ -61,12 +77,13 @@ def microphone_signal(pcm):
 
 
 class Microphone:
-    def __init__(self):
+    def __init__(self, device=None):
         self.api = ct.WinDLL('winmm')
         self.handle = ct.c_void_p()
         self.buffers = deque()
         self.prepared = []
-        _check(self.api.waveInOpen(ct.byref(self.handle), DEFAULT_DEVICE, ct.byref(_format(MIC_RATE)),
+        _check(self.api.waveInOpen(ct.byref(self.handle), DEFAULT_DEVICE if device is None else device,
+                                   ct.byref(_format(MIC_RATE)),
                                    ct.c_size_t(0), ct.c_size_t(0), 0), 'open the microphone')
         try:
             for _ in range(8):
@@ -163,6 +180,38 @@ class Playback:
         radius = self.rate // 48
         peaks, energy = signal(self.samples[max(0, position - radius):min(position + radius, self.frames)])
         return position / self.frames, peaks, energy
+
+    def cancel_echo(self, pcm):
+        """Estimate a delayed playback copy and subtract its correlated component."""
+        audio = array('h', pcm)
+        if len(audio) < 80:
+            return pcm, False
+        position = self.position()
+        ratio = self.rate / MIC_RATE
+        offsets = [round(i * ratio) for i in range(0, len(audio), 8)]
+        observed = audio[::8]
+        energy = sum(value * value for value in observed)
+        if not energy:
+            return pcm, False
+        best = (0., 0, 0.)
+        origin = position - round(len(audio) * ratio)
+        for delay in range(0, self.rate // 4, max(1, self.rate // 1000)):
+            start = origin - delay
+            reference = [self.samples[j] if 0 <= j < self.frames else 0 for j in (start + i for i in offsets)]
+            power = sum(value * value for value in reference)
+            if power:
+                dot = sum(a * b for a, b in zip(observed, reference))
+                score = dot * dot / (energy * power)
+                if score > best[0]:
+                    best = (score, start, dot / power)
+        score, start, gain = best
+        if score < .38:
+            return pcm, False
+        for i, sample in enumerate(audio):
+            offset = start + round(i * ratio)
+            if 0 <= offset < self.frames:
+                audio[i] = max(-32768, min(32767, round(sample - gain * self.samples[offset])))
+        return audio.tobytes(), True
 
     def close(self):
         if not self.handle:

@@ -87,7 +87,7 @@ sign-in.
 - Check **Hands-free voice** and speak. JARVIS answers after you pause and
   shows what it heard in the conversation panel.
   Say “stop listening” or press Escape to stop.
-  Audio stays in memory. ElevenLabs transcribes the microphone. Reply text goes
+  Audio stays in memory. Groq Whisper or ElevenLabs transcribes the microphone when configured. Reply text goes
   to the configured speech provider, with Windows speech as a fallback.
 - The waveform and speaking ring follow Windows' real playback position.
   Browser and Gmail tasks show activity and move the core aside. Gmail remains
@@ -171,6 +171,37 @@ References: [Fish Audio setup](https://docs.fish.audio/developer-guide/getting-s
 [ElevenLabs speech generation](https://elevenlabs.io/docs/api-reference/text-to-speech/convert),
 and [ElevenLabs transcription](https://elevenlabs.io/docs/api-reference/speech-to-text/convert).
 
+## Microphone and recognition
+
+- Choose an input in the desktop panel or browser console. Use **Hands-free voice**
+  on desktop or **Start microphone** in the browser. Use the same desktop checkbox,
+  **Stop / mute**, or say “stop listening” to turn capture off. While enabled, JARVIS
+  retries a disconnected microphone every two seconds.
+- Desktop conditions the signal with a high-pass filter, adaptive noise attenuation,
+  and bounded automatic gain. It keeps a 360 ms pre-buffer and adapts how long it
+  waits for a thought pause. Its panel shows input level, estimated background
+  noise in dBFS, and the most recent recognizer. The browser uses audio processing
+  supplied by the browser with controls for sensitivity, pause, and suppression.
+- Set `JARVIS_WAKE_WORD=1` in `jarvis/.env` for desktop and browser wake-word mode. In standby, say “Jarvis”
+  or ?Hey Jarvis,? wait for the listening indicator, then ask your question.
+  JARVIS checks the wake phrase with the installed Windows recognizer, locally.
+  Follow-ups stay open for 25 seconds. Set `JARVIS_MIC_AUTOSTART=1` to opt in to
+  wake-word standby at desktop launch. Startup capture is off by default.
+- Set desktop controls in `jarvis/.env` and restart JARVIS. Sensitivity, suppression,
+  and wake sensitivity range from 0 to 1. The base silence interval ranges from
+  0.55 to 1.8 seconds. `JARVIS_MIC_DEVICE` accepts the input index shown in the panel.
+- Speak over a reply to interrupt it. Desktop subtracts a correlated copy of its
+  playback from microphone input. In the browser, interruption requires active
+  browser echo cancellation. Headphones avoid room echo and help with quieter
+  interruptions.
+- Groq Whisper defaults to `whisper-large-v3`. Use `GROQ_STT_PROMPT` for vocabulary
+  such as product names, names of people, and technical terms. Set `GROQ_STT_LANGUAGE`
+  to a two-letter code or `auto`. If the API fails, JARVIS can use ElevenLabs and
+  then Windows. If Whisper marks an utterance unclear, JARVIS asks you to repeat
+  it before acting. The app processes audio in memory without saving recordings.
+  Approved speech leaves the computer when a cloud transcription provider is active.
+  [Groq speech-to-text documentation](https://console.groq.com/docs/speech-to-text)
+
 ## Questions and conversation
 
 Add `GROQ_API_KEY` to the gitignored `jarvis/.env` to enable Groq for
@@ -191,14 +222,14 @@ during verification. CPU inference was responsive. Remove that setting to retry
 automatic GPU selection later.
 
 Type a question and click **Send** or press Enter (Shift+Enter adds a line).
-Click **Start microphone** once, then speak naturally. After about 0.85 seconds of silence, JARVIS
+Click **Start microphone** once, then speak naturally. After an adaptive pause based on the length of your phrase, JARVIS
 shows what it heard in the conversation and speaks the answer. It then listens
 again. Say “stop listening” or choose **Stop / mute** to end the session.
 The last 10 turns stay in page memory for follow-ups such as “why?” or “the second
 one.” Reloading the page or **New conversation** clears that context.
 
 Voice approval is optional for typed chat. When enabled, questions' audio goes
-to ElevenLabs for transcription, and generated reply text goes to the selected
+to the configured cloud transcription provider, and generated reply text goes to the selected
 speech provider. With Groq enabled, general questions and recent conversation go to Groq.
 The stored profile and automatically retrieved note excerpts go only to Ollama.
 Start a new conversation to clear earlier turns before switching topics. There is no live web search; current facts need external
@@ -234,7 +265,7 @@ history, and generated model replies cannot execute actions. No shell command
 execution is implemented. These actions are desktop features; the public static
 site connects to your computer only through the paired local frame.
 
-ElevenLabs microphone transcription requires the **secret ElevenLabs API key**.
+ElevenLabs fallback transcription requires the **secret ElevenLabs API key**.
 Fish Audio speech requires a separate **Fish Audio API key** in `FISH_API_KEY`.
 Save provider secrets in your gitignored `jarvis/.env`. Keep them out of chat and
 Git. Typed commands work even when speech credentials are unavailable.

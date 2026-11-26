@@ -13,7 +13,7 @@ from . import data, voice, conversation, tools
 UI = data.ROOT / 'ui'
 DASHBOARD_ASSETS = data.ROOT.parent / 'public-site' / 'dist'
 PUBLIC_ORIGIN = 'https://seth-jarvis-command-center.sa3464.chatgpt.site'
-EMBED_ACTIONS = {'chat', 'listen', 'listen/local', 'speak', 'speak/local', 'inbox', 'disconnect'}
+EMBED_ACTIONS = {'chat', 'listen', 'listen/local', 'listen/wake', 'speak', 'speak/local', 'inbox', 'disconnect'}
 
 
 class Pairing:
@@ -142,7 +142,11 @@ class Handler(BaseHTTPRequestHandler):
         return self.reply(403, {'error': 'This endpoint is local only.'})
 
     def console_status(self, token):
-        return {'voice_configured': voice.configured(), 'csrf': token, 'demo': data.status()['demo'],
+        config = voice.settings()
+        recognizer = voice.transcription_provider(config)
+        return {'voice_configured': recognizer != 'Windows', 'stt_provider': recognizer,
+                'wake_word': config.get('JARVIS_WAKE_WORD') == '1',
+                'csrf': token, 'demo': data.status()['demo'],
                 'model': conversation.status(), **voice.output_status()}
 
     def do_GET(self):
@@ -231,12 +235,19 @@ class Handler(BaseHTTPRequestHandler):
                 path = '/api/' + action
             if path == '/api/listen':
                 try:
-                    text = voice.listen(body, self.headers.get('Content-Type', ''), approved=approved)
+                    transcript = voice.listen(body, self.headers.get('Content-Type', ''), approved=approved, details=True)
                 except voice.ElevenLabsQuotaError as error:
                     return self.reply(402, {'error': str(error)})
-                return self.reply(200, {'text': text})
+                return self.reply(200, transcript)
             if path == '/api/listen/local':
                 return self.reply(200, {'text': voice.listen_locally(body, approved=approved)})
+            if path == '/api/listen/wake':
+                try:
+                    sensitivity = float(voice.settings().get('JARVIS_WAKE_SENSITIVITY', '.55'))
+                except ValueError:
+                    sensitivity = .55
+                text = voice.listen_locally(body, approved=approved, wake_sensitivity=sensitivity)
+                return self.reply(200, {'detected': bool(text)})
             payload = json.loads(body)
             if path == '/api/chat':
                 return self.reply(200, tools.execute(payload.get('question'), payload.get('history', [])))

@@ -115,6 +115,14 @@
         <button id="inbox" type="button" class="quiet">Read unread email</button>
       </div>
       <p id="voice-note">JARVIS answers after you pause. Say “stop listening” or use Stop / mute to end the session.</p>
+      <p><label>Microphone <select id="microphone-device"><option value="">System default</option></select></label></p>
+      <p id="microphone-diagnostics">Microphone off</p>
+      <details>
+        <summary>Microphone settings</summary>
+        <label>Sensitivity <input id="microphone-sensitivity" type="range" min="0" max="100" value="55"></label>
+        <label>Pause before responding <input id="microphone-pause" type="range" min="550" max="1800" step="50" value="950"></label>
+        <label><input id="microphone-suppression" type="checkbox" checked> Background noise suppression</label>
+      </details>
       <p id="gmail-voice-note">Sign in with your NJIT account when prompted. JARVIS leaves messages unread. When voice is enabled, sender names and subjects may go to the speech provider.</p>
       <div id="cards" aria-live="polite"></div>
     </section>

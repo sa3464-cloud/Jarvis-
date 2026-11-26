@@ -12,12 +12,12 @@ CORE_Y = 150
 PANEL_W = 378
 PANEL_Y, PANEL_H = 32, 278
 COLORS = {
-    'idle': '#75d8ff', 'listening': '#63ffe1', 'thinking': '#aabfff',
+    'idle': '#75d8ff', 'standby': '#e9bc78', 'listening': '#63ffe1', 'thinking': '#aabfff',
     'speaking': '#85ffef', 'executing': '#77d9ff', 'complete': '#7effbb',
     'error': '#ffa5a9',
 }
 VELOCITY = {
-    'idle': 12, 'listening': 21, 'thinking': 95, 'speaking': 40,
+    'idle': 12, 'standby': 14, 'listening': 21, 'thinking': 95, 'speaking': 40,
     'executing': 66, 'complete': 32, 'error': 0,
 }
 
@@ -162,10 +162,11 @@ class Hologram:
             self.text(x, y + 56, 'Restore', 9, MUTED)
             return
         self.text(x, y - 12, 'J A R V I S', 15, accent)
-        if waveform and state in ('listening', 'speaking'):
+        if waveform and state in ('standby', 'listening', 'speaking'):
             points = []
             for i, sample in enumerate(waveform):
-                points.extend((x - 39 + i * 78 / max(1, len(waveform) - 1), y + 15 + sample * 24))
+                amplitude = max(-1, min(1, sample * (4 if state != 'speaking' else 1)))
+                points.extend((x - 39 + i * 78 / max(1, len(waveform) - 1), y + 15 + amplitude * 24))
             if len(points) > 3:
                 self.line(*points, color=accent, width=2)
         else:

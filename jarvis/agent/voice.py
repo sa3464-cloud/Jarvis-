@@ -238,7 +238,7 @@ def _speech_retry_wav(samples):
     return pcm_wave(pcm.tobytes() + b'\0\0' * 25600)
 
 
-def listen_locally(audio, *, approved=False):
+def listen_locally(audio, *, approved=False, wake_sensitivity=None):
     """Recognize a short 16 kHz mono WAV with the installed Windows recognizer."""
     if not approved:
         raise PermissionError('Enable voice for this session before transcribing audio.')
@@ -290,6 +290,19 @@ try {
     $engine.SetInputToAudioStream($audio, $format)
 '''
     unavailable = 'Windows could not process this recording. Try a short sentence, or type your question.'
+    if wake_sensitivity is not None:
+        threshold = .85 - .45 * max(0., min(1., wake_sensitivity))
+        grammar = '''$builder = [System.Speech.Recognition.GrammarBuilder]::new()
+    $builder.Culture = $engine.RecognizerInfo.Culture
+    $builder.Append([System.Speech.Recognition.Choices]::new([string[]]@('Jarvis', 'Hey Jarvis')))
+    $engine.LoadGrammar([System.Speech.Recognition.Grammar]::new($builder))'''
+        script = script.replace('$engine.LoadGrammar([System.Speech.Recognition.DictationGrammar]::new())', grammar)
+        script = script.replace('if ($result)', f'if ($result -and $result.Confidence -ge {threshold:.3f})')
+        script = script.replace('# INPUT_SETUP', '$engine.SetInputToWaveStream($audio)')
+        try:
+            return _windows_speech(script, audio, unavailable, timeout=8).decode('utf-8').strip()
+        except WindowsSpeechError as error:
+            raise RuntimeError(_recognition_message(error)) from None
     try:
         result = _windows_speech(script.replace('# INPUT_SETUP', raw_input), samples, unavailable, timeout=40)
         transcript = result.decode('utf-8').strip()
@@ -317,15 +330,70 @@ def _recognition_message(error):
     }.get(error.reason, str(error))
 
 
-def listen(audio, mime='audio/webm', *, approved=False):
+def transcription_provider(config=None):
+    if config is None:
+        config = settings()
+    if config.get('GROQ_API_KEY', '').strip():
+        return 'Groq Whisper'
+    return 'ElevenLabs' if config.get('ELEVENLABS_API_KEY', '').strip() else 'Windows'
+
+
+def _groq_transcript(config, part):
+    fields = {'model': config.get('GROQ_STT_MODEL') or 'whisper-large-v3',
+              'response_format': 'verbose_json', 'temperature': '0'}
+    language = config.get('GROQ_STT_LANGUAGE', 'en').strip().lower()
+    if language != 'auto':
+        if not re.fullmatch(r'[a-z]{2}', language):
+            raise ValueError('Use a two-letter Groq transcription language code, or auto.')
+        fields['language'] = language
+    if prompt := config.get('GROQ_STT_PROMPT', 'JARVIS, ElevenLabs, Groq, Ollama').strip():
+        fields['prompt'] = prompt[:400]
+    body, content_type = part(fields)
+    request = Request('https://api.groq.com/openai/v1/audio/transcriptions', data=body, headers={
+        'Authorization': 'Bearer ' + config['GROQ_API_KEY'].strip(), 'Content-Type': content_type,
+        'Accept': 'application/json',
+    })
+    try:
+        with build_opener(NoRedirect()).open(request, timeout=12) as response:
+            raw = response.read(2 * 1024 * 1024 + 1)
+        if len(raw) > 2 * 1024 * 1024:
+            raise ValueError()
+        result = json.loads(raw)
+        text = result['text'].strip()
+        segments = result.get('segments') or []
+        uncertain = bool(segments) and all(
+            segment.get('no_speech_prob', 0) > .6 or segment.get('avg_logprob', 0) < -1.0
+            or segment.get('compression_ratio', 0) > 2.4 for segment in segments)
+        return {'text': '' if uncertain else text, 'provider': 'Groq Whisper', 'uncertain': uncertain}
+    except (HTTPError, URLError, OSError, AttributeError, ValueError, TypeError, KeyError):
+        raise RuntimeError('Groq transcription is unavailable. Check the API key or try again.') from None
+
+
+def listen(audio, mime='audio/webm', *, approved=False, details=False):
     if not approved:
-        raise PermissionError('Approve ElevenLabs credit use before transcription.')
+        raise PermissionError('Approve cloud speech recognition before transcription.')
     extensions = {'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/mp4': 'mp4', 'audio/wav': 'wav', 'audio/mpeg': 'mp3'}
     mime = mime.split(';', 1)[0].strip().lower()
     if mime not in extensions or not audio or len(audio) > MAX_AUDIO:
         raise ValueError('Audio must be a supported recording under 12 MB.')
-    boundary = 'jarvis' + secrets.token_hex(16)
     config = settings()
+
+    def multipart(fields):
+        boundary = 'jarvis' + secrets.token_hex(16)
+        prefix = ''.join(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'
+                         for name, value in fields.items())
+        header = (f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="recording.{extensions[mime]}"\r\n'
+                  f'Content-Type: {mime}\r\n\r\n')
+        return ((prefix + header).encode() + audio + f'\r\n--{boundary}--\r\n'.encode(),
+                f'multipart/form-data; boundary={boundary}')
+
+    if config.get('GROQ_API_KEY', '').strip():
+        try:
+            result = _groq_transcript(config, multipart)
+            return result if details else result['text']
+        except RuntimeError:
+            if not config.get('ELEVENLABS_API_KEY'):
+                raise
     model = config.get('ELEVENLABS_STT_MODEL', 'scribe_v2')
     if not re.fullmatch(r'[a-zA-Z0-9_]+', model):
         raise ValueError('Invalid transcription model configuration.')
@@ -335,16 +403,12 @@ def listen(audio, mime='audio/webm', *, approved=False):
         if not re.fullmatch(r'[a-z]{2,3}', language):
             raise ValueError('Use a two- or three-letter transcription language code, or auto.')
         fields['language_code'] = language
-    prefix = ''.join(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'
-                     for name, value in fields.items())
-    header = (f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="recording.{extensions[mime]}"\r\n'
-              f'Content-Type: {mime}\r\n\r\n')
-    body = (prefix + header).encode() + audio + f'\r\n--{boundary}--\r\n'.encode()
+    body, content_type = multipart(fields)
     try:
-        result = json.loads(_request('/v1/speech-to-text', body, f'multipart/form-data; boundary={boundary}', 'application/json'))
+        result = json.loads(_request('/v1/speech-to-text', body, content_type, 'application/json'))
         text = result['text']
         if not isinstance(text, str):
             raise ValueError()
-        return text
+        return {'text': text, 'provider': 'ElevenLabs', 'uncertain': False} if details else text
     except (ValueError, KeyError, TypeError):
         raise RuntimeError('ElevenLabs returned an invalid transcript.') from None
