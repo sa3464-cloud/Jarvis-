@@ -102,9 +102,9 @@ async function ask(question) {
     addTurn('assistant',result.answer);
     showAction(result);
     for(const source of result.sources){const card=document.createElement('article');const title=document.createElement('strong');title.textContent=source.file;const excerpt=document.createElement('p');excerpt.textContent=source.text;card.append(title,excerpt);$('conversation').appendChild(card);}
-    $('model').textContent=result.model_missing?'Model unavailable — limited fallback only':result.action&&result.action!=='conversation'?result.model:`Local Ollama · ${result.model}`;
+    $('model').textContent=result.model_missing?'Model unavailable — limited fallback only':result.action&&result.action!=='conversation'?result.model:`${result.provider || 'Local Ollama'} · ${result.model}`;
     if(!result.model_missing)history=[...history,{role:'user',content:question},{role:'assistant',content:result.answer}].slice(-20);
-    busy=false;state('Idle',result.model_missing?'The local model is unavailable. Check the message below.':'Answer ready.');
+    busy=false;state('Idle',result.model_missing?'The conversation model is unavailable. Check the message below.':'Answer ready.');
     if($('approval').checked)await say(result.spoken);
     else if(enabled)await record();
   }catch(error){

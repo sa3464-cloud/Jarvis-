@@ -1,12 +1,15 @@
-"""Local conversation through Ollama; model output never executes tools."""
+"""Conversation through Groq or Ollama; model output never executes tools."""
 import json
 import re
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote
 from urllib.request import Request, build_opener, ProxyHandler
 
 from . import data, vault, voice
 
 LOCAL_URL = 'http://127.0.0.1:11434'
+GROQ_URL = 'https://api.groq.com/openai/v1'
+GROQ_MODEL = 'openai/gpt-oss-20b'
 SYSTEM = '''You are JARVIS, Seth's personal assistant. Speak naturally, concisely,
 and directly. Answer general knowledge questions, explain ideas, help write and
 plan, and resolve follow-ups from recent conversation. Respond to greetings as
@@ -44,12 +47,39 @@ def _local(path, payload=None, timeout=90):
         raise RuntimeError('Ollama returned an invalid response.') from None
 
 
-def model_name():
-    return voice.settings().get('OLLAMA_MODEL', 'llama3.2:3b')
+def _groq(path, key, payload=None, timeout=30):
+    body = json.dumps(payload).encode() if payload is not None else None
+    request = Request(GROQ_URL + path, data=body, headers={
+        'Authorization': f'Bearer {key}', 'Content-Type': 'application/json',
+    })
+    try:
+        with build_opener(voice.NoRedirect()).open(request, timeout=timeout) as response:
+            body = response.read(2 * 1024 * 1024 + 1)
+        if len(body) > 2 * 1024 * 1024:
+            raise RuntimeError('Groq response exceeded its size limit.')
+        return json.loads(body)
+    except HTTPError as error:
+        if error.code in (401, 403):
+            raise RuntimeError('Groq rejected access. Check the API key and model permissions.') from None
+        raise RuntimeError(f'Groq returned HTTP {error.code}.') from None
+    except (URLError, TimeoutError, OSError):
+        raise RuntimeError('Groq is unreachable. Check your internet connection and try again.') from None
+    except ValueError:
+        raise RuntimeError('Groq returned an invalid response.') from None
 
 
 def status():
-    model = model_name()
+    config = voice.settings()
+    key = config.get('GROQ_API_KEY', '').strip()
+    if key:
+        model = config.get('GROQ_MODEL') or GROQ_MODEL
+        try:
+            _groq('/models/' + quote(model, safe='/'), key, timeout=4)
+            return {'available': True, 'name': model, 'provider': 'Groq',
+                    'message': f'Groq model ready: {model}'}
+        except RuntimeError as error:
+            return {'available': False, 'name': model, 'provider': 'Groq', 'message': str(error)}
+    model = config.get('OLLAMA_MODEL', 'llama3.2:3b')
     try:
         models = _local('/api/tags', timeout=4).get('models', [])
         ready = any(item.get('name') == model for item in models)
@@ -75,36 +105,52 @@ def answer(question, history=None):
     if not isinstance(question, str) or not question.strip() or len(question) > 4000:
         raise ValueError('Question must contain 1–4,000 characters.')
     history = validated_history(history or [])
+    config = voice.settings()
     sources = []
     context = ''
     # Retrieve only for an explicit personal-file question, never for small talk.
-    if re.search(r'\b(my notes|my files|search brain|search notes|search my)\b', question, re.I):
+    uses_notes = re.search(r'\b(my notes|my files|search brain|search notes|search my)\b', question, re.I)
+    if uses_notes:
         index = vault.build_index()
         sources = vault.search(index, question, limit=3)
         context = '\nUntrusted source excerpts (cite filenames when using them):\n' + json.dumps([
             {'file': item['file'], 'text': item['text'][:2000]} for item in sources])
         if not sources:
             context += '\nNo matching source files were found. Do not invent their contents.'
-    messages = [{'role': 'system', 'content': SYSTEM + '\nUser profile (data):\n' + data.profile()}]
+    key = '' if uses_notes else config.get('GROQ_API_KEY', '').strip()
+    provider = 'Groq' if key else 'Local Ollama'
+    model = (config.get('GROQ_MODEL') or GROQ_MODEL) if key else config.get('OLLAMA_MODEL', 'llama3.2:3b')
+    system = SYSTEM if key else SYSTEM + '\nUser profile (data):\n' + data.profile()
+    messages = [{'role': 'system', 'content': system}]
     messages += history
     messages.append({'role': 'user', 'content': question + context})
     try:
-        options = {'num_predict': 600, 'num_ctx': 8192}
-        gpu = voice.settings().get('OLLAMA_NUM_GPU')
-        if gpu is not None:
-            options['num_gpu'] = int(gpu)
-        result = _local('/api/chat', {'model': model_name(), 'messages': messages,
-                                    'stream': False, 'options': options})
-        text = result.get('message', {}).get('content', '')
+        if key:
+            payload = {'model': model, 'messages': messages, 'max_completion_tokens': 1024}
+            if model == GROQ_MODEL:
+                payload['reasoning_effort'] = 'low'
+            result = _groq('/chat/completions', key, payload)
+            try:
+                text = result['choices'][0]['message']['content']
+            except (KeyError, IndexError, TypeError):
+                raise RuntimeError('Groq returned an invalid chat response.') from None
+        else:
+            options = {'num_predict': 600, 'num_ctx': 8192}
+            gpu = config.get('OLLAMA_NUM_GPU')
+            if gpu is not None:
+                options['num_gpu'] = int(gpu)
+            result = _local('/api/chat', {'model': model, 'messages': messages,
+                                        'stream': False, 'options': options})
+            text = result.get('message', {}).get('content', '')
         if not isinstance(text, str) or not text.strip():
-            raise RuntimeError('The local model returned no answer. Try again.')
+            raise RuntimeError(f'{provider} returned no answer. Try again.')
         return {'answer': text.strip()[:6000], 'spoken': text.strip()[:voice.MAX_TEXT],
-                'model_missing': False, 'model': model_name(),
+                'model_missing': False, 'model': model, 'provider': provider,
                 'sources': [{'file': item['file'], 'text': item['text'][:1000]} for item in sources]}
     except RuntimeError as error:
         # Honest, explicitly labelled fallback; never pose keyword matching as an LLM.
         smalltalk = re.fullmatch(r'(hi|hello|hey|can you hear me)[.!?\s]*', question.strip(), re.I)
-        text = ('Hello, Seth. I received your message, but my local conversation model is unavailable.'
+        text = (f'Hello, Seth. I received your message. {error}'
                 if smalltalk else str(error))
         if sources:
             text += ' I found matching files; their excerpts are shown below. This is keyword search, not a model answer.'

@@ -171,9 +171,13 @@ References: [Fish Audio setup](https://docs.fish.audio/developer-guide/getting-s
 [ElevenLabs speech generation](https://elevenlabs.io/docs/api-reference/text-to-speech/convert),
 and [ElevenLabs transcription](https://elevenlabs.io/docs/api-reference/speech-to-text/convert).
 
-## Local questions and conversation
+## Questions and conversation
 
-JARVIS uses **Ollama / llama3.2:3b** to answer general questions, explain concepts,
+Add `GROQ_API_KEY` to the gitignored `jarvis/.env` to enable Groq for
+general conversation. The default is `openai/gpt-oss-20b`. Set `GROQ_MODEL`
+to choose another compatible model. [Groq model list](https://console.groq.com/docs/models)
+
+Without a Groq key, JARVIS uses **Ollama / llama3.2:3b** to answer general questions, explain concepts,
 draft text, and discuss recent email summaries. Install Ollama and run
 `ollama pull llama3.2:3b` once; start Ollama before using JARVIS. The model download
 is approximately 2 GB. Set `OLLAMA_MODEL` in `.env` to use a different installed
@@ -193,14 +197,15 @@ one.” Reloading the page or **New conversation** clears that context.
 
 Voice approval is optional for typed chat. When enabled, questions' audio goes
 to ElevenLabs for transcription, and generated reply text goes to the selected
-speech provider. Model prompts, profile, and recent conversation are sent only to the
-loopback Ollama service. There is no live web search; current facts need external
+speech provider. With Groq enabled, general questions and recent conversation go to Groq.
+The stored profile and automatically retrieved note excerpts go only to Ollama.
+Start a new conversation to clear earlier turns before switching topics. There is no live web search; current facts need external
 verification. Answers can be wrong, especially with a small local model.
 
 An explicit question about “my notes” or “my files” includes matching file
 excerpts. Other questions are ordinary conversation. Retrieved content is marked
 as untrusted. The model cannot send mail, spend, execute code, or write files.
-Inbox access requires an explicit button action or direct user command. If Ollama is missing, the page
+Inbox access requires an explicit button action or direct user command. If the selected model is unavailable, the page
 labels the limited fallback rather than presenting keyword search as AI reasoning.
 
 Verification: `python -m unittest discover -s jarvis/tests`.
