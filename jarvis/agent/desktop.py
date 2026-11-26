@@ -21,6 +21,7 @@ from .desktop_hud import (TRANSPARENT, PANEL, INK, MUTED, WIDTH, HEIGHT, CORE_Y,
 
 TITLE = 'JARVIS Floating Core'
 SHORTCUT = 'Ctrl+Alt+J'
+END_OF_SPEECH_SECONDS = .85
 TASKS = {
     'read_inbox': ('Reading unread Gmail', 'Complete Google sign-in if your browser opens.'),
     'open_website': ('Opening website', 'Handing the link to your default browser.'),
@@ -411,7 +412,8 @@ class Desktop:
             del self.samples[:discard]
             self.candidate_start = max(0, self.candidate_start - discard)
             self.last_voice_byte = max(0, self.last_voice_byte - discard)
-        elif now - self.last_sound >= 1.45 or len(self.samples) - self.speech_start >= 29.5 * MIC_RATE * 2:
+        elif (now - self.last_sound >= END_OF_SPEECH_SECONDS or
+              len(self.samples) - self.speech_start >= 29.5 * MIC_RATE * 2):
             self.finish_listening()
 
     def finish_listening(self):

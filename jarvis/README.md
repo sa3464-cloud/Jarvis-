@@ -183,13 +183,15 @@ draft text, and discuss recent email summaries. Install Ollama and run
 is approximately 2 GB. Set `OLLAMA_MODEL` in `.env` to use a different installed
 local model. No paid model API key is needed. Inference uses your computer's CPU
 or GPU and may take longer on slower hardware.
+JARVIS asks Ollama to keep the model loaded for 15 minutes after each reply so
+follow-up questions can skip model loading while it stays in memory.
 
 This laptop is configured with `OLLAMA_NUM_GPU=0` because its GPU path timed out
 during verification. CPU inference was responsive. Remove that setting to retry
 automatic GPU selection later.
 
 Type a question and click **Send** or press Enter (Shift+Enter adds a line).
-Click **Start microphone** once, then speak naturally. After you pause, JARVIS
+Click **Start microphone** once, then speak naturally. After about 0.85 seconds of silence, JARVIS
 shows what it heard in the conversation and speaks the answer. It then listens
 again. Say “stop listening” or choose **Stop / mute** to end the session.
 The last 10 turns stay in page memory for follow-ups such as “why?” or “the second

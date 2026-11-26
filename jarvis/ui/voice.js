@@ -1,4 +1,4 @@
-const SILENCE_MS = 1450;
+const SILENCE_MS = 850;
 const PRE_ROLL_MS = 350;
 const TAIL_MS = 450;
 const MIN_SPEECH_MS = 160;

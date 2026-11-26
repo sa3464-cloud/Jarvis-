@@ -140,7 +140,7 @@ def answer(question, history=None):
             if gpu is not None:
                 options['num_gpu'] = int(gpu)
             result = _local('/api/chat', {'model': model, 'messages': messages,
-                                        'stream': False, 'options': options})
+                                        'stream': False, 'options': options, 'keep_alive': '15m'})
             text = result.get('message', {}).get('content', '')
         if not isinstance(text, str) or not text.strip():
             raise RuntimeError(f'{provider} returned no answer. Try again.')
