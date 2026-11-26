@@ -42,6 +42,20 @@
             <div class="metrics audio-metrics"><div>Mic level<strong id="hud-mic">0%</strong></div><div>Playback<strong id="hud-playback">0%</strong></div></div>
           </div>
         </section>
+      <section class="panel tile" aria-labelledby="microphone-title">
+        <h2 id="microphone-title">Microphone settings</h2>
+        <div class="tile-body">
+          <p><label>Microphone <select id="microphone-device"><option value="">System default</option></select></label></p>
+          <p id="microphone-diagnostics">Microphone off</p>
+          <details>
+            <summary>Advanced controls</summary>
+            <p><label>Sensitivity <input id="microphone-sensitivity" type="range" min="0" max="100" value="55"></label></p>
+            <p><label>Pause before responding <input id="microphone-pause" type="range" min="550" max="1800" step="50" value="950"></label></p>
+            <p><label><input id="microphone-suppression" type="checkbox" checked> Background noise suppression</label></p>
+          </details>
+          <p class="fine-print" id="voice-note">JARVIS answers after you pause. Say “stop listening” or use Stop / mute to end the session.</p>
+        </div>
+      </section>
       <section class="panel tile">
         <h2><span class="section-icon" aria-hidden="true">☁</span> Weather</h2>
         <div class="tile-body">
@@ -114,15 +128,6 @@
         <h2 id="connections-title">Gmail inbox</h2>
         <button id="inbox" type="button" class="quiet">Read unread email</button>
       </div>
-      <p id="voice-note">JARVIS answers after you pause. Say “stop listening” or use Stop / mute to end the session.</p>
-      <p><label>Microphone <select id="microphone-device"><option value="">System default</option></select></label></p>
-      <p id="microphone-diagnostics">Microphone off</p>
-      <details>
-        <summary>Microphone settings</summary>
-        <label>Sensitivity <input id="microphone-sensitivity" type="range" min="0" max="100" value="55"></label>
-        <label>Pause before responding <input id="microphone-pause" type="range" min="550" max="1800" step="50" value="950"></label>
-        <label><input id="microphone-suppression" type="checkbox" checked> Background noise suppression</label>
-      </details>
       <p id="gmail-voice-note">Sign in with your NJIT account when prompted. JARVIS leaves messages unread. When voice is enabled, sender names and subjects may go to the speech provider.</p>
       <div id="cards" aria-live="polite"></div>
     </section>
