@@ -228,14 +228,14 @@ try {
 
 
 def _speech_retry_wav(samples):
-    """Make quiet speech louder and give the recognizer time to finish the phrase."""
+    """Give quiet audio a second pass with bounded gain."""
     pcm = array('h')
     pcm.frombytes(samples)
     peak = max(map(abs, pcm))
     if 0 < peak < 12000:
         gain = min(24, 12000 / peak)
         pcm = array('h', (round(sample * gain) for sample in pcm))
-    return pcm_wave(pcm.tobytes() + b'\0\0' * 25600)
+    return pcm_wave(pcm.tobytes() + b'\0\0' * 12000)
 
 
 def listen_locally(audio, *, approved=False, wake_sensitivity=None):
@@ -255,6 +255,13 @@ def listen_locally(audio, *, approved=False, wake_sensitivity=None):
         raise ValueError(invalid) from None
     if len(samples) != frames * 2:
         raise ValueError(invalid)
+    peak = max(map(abs, array('h', samples)))
+    if peak < 24:
+        return ''
+    # WAV input supplies a finite stream. The extra silence lets SAPI close
+    # the phrase even when the client trimmed the recording tightly.
+    recording = pcm_wave(samples + b'\0\0' * 12000)
+    budget = min(15, 5 + frames / 16000)
 
     script = '''
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -272,22 +279,17 @@ $audio = [System.IO.MemoryStream]::new()
 try {
     [Console]::OpenStandardInput().CopyTo($audio)
     $audio.Position = 0
-    # INPUT_SETUP
+    $engine.SetInputToWaveStream($audio)
     $engine.LoadGrammar([System.Speech.Recognition.DictationGrammar]::new())
-    $engine.EndSilenceTimeout = [timespan]::FromMilliseconds(1500)
-    $engine.EndSilenceTimeoutAmbiguous = [timespan]::FromMilliseconds(1750)
-    $result = $engine.Recognize([timespan]::FromSeconds(30))
+    $engine.BabbleTimeout = [timespan]::FromMilliseconds(1600)
+    $engine.EndSilenceTimeout = [timespan]::FromMilliseconds(650)
+    $engine.EndSilenceTimeoutAmbiguous = [timespan]::FromMilliseconds(700)
+    $result = $engine.Recognize([timespan]::FromMilliseconds(1200))
     if ($result) { [Console]::Write($result.Text) }
 } finally {
     $engine.Dispose()
     $audio.Dispose()
 }
-'''
-    raw_input = '''
-    $format = [System.Speech.AudioFormat.SpeechAudioFormatInfo]::new(
-        16000, [System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen,
-        [System.Speech.AudioFormat.AudioChannel]::Mono)
-    $engine.SetInputToAudioStream($audio, $format)
 '''
     unavailable = 'Windows could not process this recording. Try a short sentence, or type your question.'
     if wake_sensitivity is not None:
@@ -298,33 +300,35 @@ try {
     $engine.LoadGrammar([System.Speech.Recognition.Grammar]::new($builder))'''
         script = script.replace('$engine.LoadGrammar([System.Speech.Recognition.DictationGrammar]::new())', grammar)
         script = script.replace('if ($result)', f'if ($result -and $result.Confidence -ge {threshold:.3f})')
-        script = script.replace('# INPUT_SETUP', '$engine.SetInputToWaveStream($audio)')
         try:
-            return _windows_speech(script, audio, unavailable, timeout=8).decode('utf-8').strip()
+            return _windows_speech(script, recording, unavailable, timeout=budget).decode('utf-8').strip()
         except WindowsSpeechError as error:
+            if error.reason == 'timeout':
+                return ''
             raise RuntimeError(_recognition_message(error)) from None
     try:
-        result = _windows_speech(script.replace('# INPUT_SETUP', raw_input), samples, unavailable, timeout=40)
+        result = _windows_speech(script, recording, unavailable, timeout=budget)
         transcript = result.decode('utf-8').strip()
         if transcript:
             return transcript
-        retry_audio = _speech_retry_wav(samples)
     except WindowsSpeechError as error:
-        if error.reason in ('launch', 'missing_recognizer'):
+        if error.reason == 'timeout':
+            return ''
+        if error.reason != 'engine':
             raise RuntimeError(_recognition_message(error)) from None
-        # A fresh Windows engine can read the same validated data as a WAV file.
-        retry_audio = pcm_wave(samples)
-    alternate = script.replace('# INPUT_SETUP', '$engine.SetInputToWaveStream($audio)')
+    if peak >= 12000:
+        return ''
     try:
-        result = _windows_speech(alternate, retry_audio, unavailable, timeout=40)
+        result = _windows_speech(script, _speech_retry_wav(samples), unavailable, timeout=budget)
     except WindowsSpeechError as retry:
+        if retry.reason == 'timeout':
+            return ''
         raise RuntimeError(_recognition_message(retry)) from None
     return result.decode('utf-8').strip()
 
 
 def _recognition_message(error):
     return {
-        'timeout': 'Windows transcription timed out. Try a shorter sentence, or type your question.',
         'launch': 'JARVIS could not start Windows transcription. You can still type a question.',
         'missing_recognizer': 'Windows has no offline speech recognizer installed. You can still type a question.',
     }.get(error.reason, str(error))

@@ -33,53 +33,47 @@ class SpeechErrorsTest(unittest.TestCase):
 
 
 class WindowsMicrophoneTest(unittest.TestCase):
-    def test_fallback_retries_with_canonical_wav_after_engine_error(self):
-        samples = b'\x01\x00' * 16
-        audio = voice.pcm_wave(samples)
-        failure = voice.WindowsSpeechError('engine', 'An engine error occurred')
-        with patch.object(voice, '_windows_speech', side_effect=[failure, b'Test']) as recognize:
-            self.assertEqual(voice.listen_locally(audio, approved=True), 'Test')
-        first, second = recognize.call_args_list
-        self.assertEqual(first.args[1], samples)
-        self.assertIn('SetInputToWaveStream', second.args[0])
-        with wave.open(io.BytesIO(second.args[1]), 'rb') as recording:
-            self.assertEqual(recording.readframes(16), samples)
-
     def test_missing_recognizer_has_actionable_error_and_no_retry(self):
         failure = voice.WindowsSpeechError('missing_recognizer', 'Offline recognition missing')
         with patch.object(voice, '_windows_speech', side_effect=failure) as recognize:
             with self.assertRaisesRegex(RuntimeError, 'no offline speech recognizer'):
-                voice.listen_locally(voice.pcm_wave(b'\x00\x00'), approved=True)
+                voice.listen_locally(voice.pcm_wave(b'\x00\x04' * 160), approved=True)
             self.assertEqual(recognize.call_count, 1)
 
-    def test_second_timeout_is_reported_after_recovery_attempt(self):
+    def test_silence_does_not_start_windows_recognition(self):
+        with patch.object(voice, '_windows_speech') as recognize:
+            self.assertEqual(voice.listen_locally(voice.pcm_wave(bytes(16000)), approved=True), '')
+            recognize.assert_not_called()
+
+    def test_timeout_prompts_clarification_without_starting_another_engine(self):
         failure = voice.WindowsSpeechError('timeout', 'Windows timed out')
-        with patch.object(voice, '_windows_speech', side_effect=failure) as recognize:
-            with self.assertRaisesRegex(RuntimeError, 'transcription timed out'):
-                voice.listen_locally(voice.pcm_wave(b'\x00\x00'), approved=True)
-            self.assertEqual(recognize.call_count, 2)
+        for wake_sensitivity in (None, .55):
+            with self.subTest(wake_sensitivity=wake_sensitivity):
+                with patch.object(voice, '_windows_speech', side_effect=failure) as recognize:
+                    audio = voice.pcm_wave(b'\x00\x04' * 8000)
+                    self.assertEqual(voice.listen_locally(audio, approved=True, wake_sensitivity=wake_sensitivity), '')
+                    self.assertEqual(recognize.call_count, 1)
+                    self.assertLessEqual(recognize.call_args.kwargs['timeout'], 6)
 
-    def test_fallback_transcribes_only_the_audio_samples(self):
-        samples = b'\x01\x00' * 16
-        audio = io.BytesIO()
-        with wave.open(audio, 'wb') as recording:
-            recording.setparams((1, 2, 16000, 0, 'NONE', 'not compressed'))
-            recording.writeframes(samples)
-
+    def test_fallback_passes_a_finite_wav_with_trailing_silence(self):
+        samples = b'\x00\x04' * 16
         with patch.object(voice, '_windows_speech', return_value=b'Test') as recognize:
-            self.assertEqual(voice.listen_locally(audio.getvalue(), approved=True), 'Test')
-            self.assertEqual(recognize.call_args.args[1], samples)
+            self.assertEqual(voice.listen_locally(voice.pcm_wave(samples), approved=True), 'Test')
+        script, audio, _ = recognize.call_args.args
+        self.assertIn('SetInputToWaveStream', script)
+        self.assertIn('FromMilliseconds(1200)', script)
+        with wave.open(io.BytesIO(audio), 'rb') as recording:
+            self.assertEqual(recording.readframes(16), samples)
+            self.assertEqual(recording.readframes(12000), bytes(24000))
 
-    def test_empty_recognition_retries_with_louder_pcm_and_silence(self):
+    def test_empty_recognition_retries_with_bounded_gain(self):
         samples = b'\x00\x04\x00\xfc' * 8
         with patch.object(voice, '_windows_speech', side_effect=[b'', b'Try again']) as recognize:
             self.assertEqual(voice.listen_locally(voice.pcm_wave(samples), approved=True), 'Try again')
-        first, retry = recognize.call_args_list
-        self.assertEqual(first.args[1], samples)
-        self.assertIn('SetInputToWaveStream', retry.args[0])
+        retry = recognize.call_args_list[1]
         with wave.open(io.BytesIO(retry.args[1]), 'rb') as recording:
             self.assertEqual(recording.readframes(16), b'\xe0\x2e\x20\xd1' * 8)
-            self.assertEqual(recording.readframes(25600), b'\0\0' * 25600)
+            self.assertEqual(recording.readframes(12000), bytes(24000))
 
     def test_fallback_rejects_invalid_audio_and_requires_approval(self):
         with patch.object(voice, '_windows_speech') as recognize:
